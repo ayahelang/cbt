@@ -49,7 +49,6 @@ async function init() {
       fetch('catalog.json')
     ]);
     config = await cfgRes.json();
-    window.__CBT_CONFIG__ = config;
     students = await stuRes.json();
     catalog = await catRes.json();
     validPacks = await validateCatalog(catalog.packs || []);
@@ -57,7 +56,6 @@ async function init() {
     setupEventListeners();
     setupAntiCheatUi();
     setupAdminExtendedUi();
-    loadProctorSettings().catch(() => {});
     if (window.SHSupabase && SHSupabase.sbEnabled()) {
       mergeRemotePacks().catch(err => console.warn('Remote packs:', err));
     }
@@ -364,16 +362,8 @@ function startExam(name, cls, questionSource, durationMin) {
   examScreen.classList.add('active');
   renderCurrent();
   startTimer();
-  if (!isPracticeMode) {
-    startAntiCheat();
-    fsUnlockedByAdmin = false;
-    if (proctorSettings.forceFullscreen) {
-      setTimeout(() => enterExamFullscreen(), 300);
-    }
-  } else {
-    stopAntiCheat();
-    stopFullscreenGuard();
-  }
+  if (!isPracticeMode) startAntiCheat();
+  else stopAntiCheat();
 }
 
 function startTimer() {
@@ -528,8 +518,6 @@ function finishExam(auto = false) {
   examFinished = true;
   clearInterval(timerInterval);
   stopAntiCheat();
-  stopFullscreenGuard();
-  exitExamFullscreenQuiet();
   saveCurrentEssay();
 
   let correct = 0;
@@ -813,9 +801,6 @@ function adminDownloadCSV() {
  */
 let tabSwitchCount = 0;
 let anticheatActive = false;
-let proctorSettings = { forceFullscreen: true, cheatAlarmSound: true };
-let fsUnlockedByAdmin = false;
-let fsGuardActive = false;
 
 function startAntiCheat() {
   tabSwitchCount = 0;
@@ -857,32 +842,6 @@ function showAntiCheatWarning() {
   msg.textContent = 'Terdeteksi Anda meninggalkan tab ujian (pindah tab / minimize). Kembali ke tab ini untuk melanjutkan.';
   cnt.textContent = 'Jumlah pelanggaran: ' + tabSwitchCount;
   ov.style.display = 'flex';
-  if (proctorSettings.cheatAlarmSound) playCheatAlarm();
-}
-
-function playCheatAlarm() {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const beep = (freq, start, dur) => {
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.type = 'square';
-      o.frequency.value = freq;
-      g.gain.value = 0.15;
-      o.connect(g);
-      g.connect(ctx.destination);
-      o.start(ctx.currentTime + start);
-      o.stop(ctx.currentTime + start + dur);
-    };
-    // pola sirene singkat biar pengawas terdengar
-    beep(880, 0, 0.18);
-    beep(660, 0.2, 0.18);
-    beep(880, 0.4, 0.18);
-    beep(660, 0.6, 0.22);
-    setTimeout(() => ctx.close(), 1200);
-  } catch (e) {
-    console.warn('Alarm sound failed', e);
-  }
 }
 
 function setupAntiCheatUi() {
@@ -998,7 +957,6 @@ function setupAdminExtendedUi() {
 
   const btnAdd = document.getElementById('btn-add-admin');
   if (btnAdd) btnAdd.addEventListener('click', onAddAdmin);
-  setupProctorUi();
 }
 
 async function onSecondaryAdminLogin() {
@@ -1147,19 +1105,22 @@ async function onUploadPack() {
     const title = document.getElementById('up-pack-title').value.trim();
     if (!id || !title) throw new Error('ID dan Judul wajib');
     const fq = document.getElementById('up-file-q').files[0];
-    if (!fq) throw new Error('File soal PG wajib');
-
-    st.textContent = 'Membaca file...';
-    const questions = await parseQuestionFile(fq, 'pg');
-    if (!Array.isArray(questions) || !questions.length) throw new Error('Soal PG kosong / format tidak dikenali');
-
-    const fe = document.getElementById('up-file-e').files[0];
-    const essays = fe ? await parseQuestionFile(fe, 'essay') : [];
-
-    const fp = document.getElementById('up-file-p').files[0];
-    let practice = fp ? await parseQuestionFile(fp, 'pg') : [];
+    if (!fq) throw new Error('File questions.json wajib');
+    const readJson = (file) => new Promise((resolve, reject) => {
+      if (!file) return resolve([]);
+      const r = new FileReader();
+      r.onload = () => {
+        try { resolve(JSON.parse(r.result)); }
+        catch (e) { reject(new Error('JSON tidak valid: ' + file.name)); }
+      };
+      r.onerror = () => reject(new Error('Gagal baca file'));
+      r.readAsText(file);
+    });
+    const questions = await readJson(fq);
+    if (!Array.isArray(questions) || !questions.length) throw new Error('questions.json harus array berisi soal');
+    const essays = await readJson(document.getElementById('up-file-e').files[0]);
+    let practice = await readJson(document.getElementById('up-file-p').files[0]);
     if (!practice.length) practice = questions;
-
     st.textContent = 'Mengunggah...';
     await SHSupabase.uploadPack({
       id,
@@ -1172,137 +1133,12 @@ async function onUploadPack() {
       essays,
       practiceQuestions: practice
     });
-    st.textContent = 'Berhasil diupload (' + questions.length + ' PG, ' + essays.length + ' essay). Muat ulang paket / refresh.';
+    st.textContent = 'Berhasil diupload. Klik "Muat Ulang Paket dari Database" atau refresh halaman.';
     await mergeRemotePacks();
   } catch (e) {
     st.textContent = 'Gagal: ' + e.message;
   }
 }
-
-function normalizeAnswerIndex(ans) {
-  if (typeof ans === 'number' && ans >= 0 && ans <= 4) return ans;
-  const s = String(ans || '').trim().toUpperCase();
-  if (/^[0-4]$/.test(s)) return parseInt(s, 10);
-  const map = { A: 0, B: 1, C: 2, D: 3, E: 4 };
-  if (s in map) return map[s];
-  return 0;
-}
-
-function rowsToPgQuestions(rows) {
-  // rows = array of objects with flexible keys
-  const out = [];
-  rows.forEach((row, i) => {
-    const keys = {};
-    Object.keys(row || {}).forEach(k => { keys[k.trim().toLowerCase()] = row[k]; });
-    const q = keys.question || keys.soal || keys.pertanyaan || '';
-    if (!String(q).trim()) return;
-    const opts = [
-      keys.optiona || keys.a || keys.opsi_a || keys.pilihan_a || '',
-      keys.optionb || keys.b || keys.opsi_b || keys.pilihan_b || '',
-      keys.optionc || keys.c || keys.opsi_c || keys.pilihan_c || '',
-      keys.optiond || keys.d || keys.opsi_d || keys.pilihan_d || '',
-      keys.optione || keys.e || keys.opsi_e || keys.pilihan_e || ''
-    ].map(x => String(x || '').trim());
-    if (opts.filter(Boolean).length < 2) return;
-    out.push({
-      id: keys.id || keys.nomor || (i + 1),
-      question: String(q).trim(),
-      options: opts,
-      answer: normalizeAnswerIndex(keys.answer || keys.kunci || keys.jawaban || 0)
-    });
-  });
-  return out;
-}
-
-function rowsToEssays(rows) {
-  const out = [];
-  rows.forEach((row, i) => {
-    const keys = {};
-    Object.keys(row || {}).forEach(k => { keys[k.trim().toLowerCase()] = row[k]; });
-    const q = keys.question || keys.soal || keys.pertanyaan || '';
-    if (!String(q).trim()) return;
-    out.push({
-      id: String(keys.id || ('E' + (i + 1))),
-      question: String(q).trim()
-    });
-  });
-  return out;
-}
-
-function parseCsvText(text) {
-  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter(l => l.trim() !== '');
-  if (lines.length < 2) return [];
-  // simple CSV split with quotes
-  const split = (line) => {
-    const res = [];
-    let cur = '', inQ = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"') {
-        if (inQ && line[i + 1] === '"') { cur += '"'; i++; }
-        else inQ = !inQ;
-      } else if (ch === ',' && !inQ) {
-        res.push(cur); cur = '';
-      } else cur += ch;
-    }
-    res.push(cur);
-    return res;
-  };
-  const headers = split(lines[0]).map(h => h.trim());
-  const rows = [];
-  for (let i = 1; i < lines.length; i++) {
-    const cols = split(lines[i]);
-    const obj = {};
-    headers.forEach((h, idx) => { obj[h] = cols[idx] != null ? cols[idx] : ''; });
-    rows.push(obj);
-  }
-  return rows;
-}
-
-async function parseQuestionFile(file, mode) {
-  const name = (file.name || '').toLowerCase();
-  if (name.endsWith('.json')) {
-    const text = await file.text();
-    const data = JSON.parse(text);
-    if (!Array.isArray(data)) throw new Error('JSON harus berupa array: ' + file.name);
-    if (mode === 'essay') {
-      return data.map((x, i) => ({
-        id: String(x.id || ('E' + (i + 1))),
-        question: x.question || x.soal || ''
-      })).filter(x => x.question);
-    }
-    return data.map((x, i) => ({
-      id: x.id != null ? x.id : (i + 1),
-      question: x.question || '',
-      options: Array.isArray(x.options) ? x.options : [],
-      answer: normalizeAnswerIndex(x.answer)
-    })).filter(x => x.question && x.options.length);
-  }
-
-  if (name.endsWith('.csv')) {
-    const text = await file.text();
-    const rows = parseCsvText(text);
-    return mode === 'essay' ? rowsToEssays(rows) : rowsToPgQuestions(rows);
-  }
-
-  if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
-    if (typeof XLSX === 'undefined') throw new Error('Library Excel belum termuat');
-    const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: 'array' });
-    const sheetName = wb.SheetNames[0];
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' });
-    return mode === 'essay' ? rowsToEssays(rows) : rowsToPgQuestions(rows);
-  }
-
-  if (name.endsWith('.doc')) {
-    throw new Error('Format .doc lama tidak didukung. Simpan sebagai .xlsx atau .csv dari Excel.');
-  }
-  if (name.endsWith('.docx')) {
-    throw new Error('Upload .docx belum didukung stabil. Salin tabel soal ke template Excel/CSV lalu upload.');
-  }
-  throw new Error('Format tidak dikenali: ' + file.name + ' (pakai JSON, XLSX, atau CSV)');
-}
-
 
 function fillAnalisisPackOptions() {
   const sel = document.getElementById('analisis-pack-filter');
@@ -1414,126 +1250,6 @@ async function refreshAdminsList() {
     st.textContent = `${(rows || []).length} admin terdaftar.`;
   } catch (e) {
     st.textContent = e.message;
-  }
-}
-
-
-
-
-async function loadProctorSettings() {
-  if (window.SHSupabase && SHSupabase.getProctorSettings) {
-    proctorSettings = await SHSupabase.getProctorSettings();
-  } else {
-    proctorSettings = {
-      forceFullscreen: config.forceFullscreen !== false,
-      cheatAlarmSound: config.cheatAlarmSound !== false
-    };
-  }
-  const fs = document.getElementById('set-force-fullscreen');
-  const al = document.getElementById('set-cheat-alarm');
-  if (fs) fs.checked = !!proctorSettings.forceFullscreen;
-  if (al) al.checked = !!proctorSettings.cheatAlarmSound;
-}
-
-function enterExamFullscreen() {
-  const el = document.documentElement;
-  const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
-  if (req) {
-    Promise.resolve(req.call(el)).catch(() => {
-      alert('Izinkan mode fullscreen untuk memulai ujian (wajib jika proctoring aktif).');
-    });
-  }
-  startFullscreenGuard();
-}
-
-function exitExamFullscreenQuiet() {
-  fsUnlockedByAdmin = true;
-  stopFullscreenGuard();
-  if (document.fullscreenElement || document.webkitFullscreenElement) {
-    const exit = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
-    if (exit) Promise.resolve(exit.call(document)).catch(() => {});
-  }
-}
-
-function startFullscreenGuard() {
-  if (fsGuardActive) return;
-  fsGuardActive = true;
-  document.addEventListener('fullscreenchange', onFullscreenChange);
-  document.addEventListener('webkitfullscreenchange', onFullscreenChange);
-}
-
-function stopFullscreenGuard() {
-  fsGuardActive = false;
-  document.removeEventListener('fullscreenchange', onFullscreenChange);
-  document.removeEventListener('webkitfullscreenchange', onFullscreenChange);
-  const ov = document.getElementById('fs-exit-overlay');
-  if (ov) ov.style.display = 'none';
-}
-
-function onFullscreenChange() {
-  if (examFinished || isPracticeMode || !proctorSettings.forceFullscreen) return;
-  if (fsUnlockedByAdmin) return;
-  const inFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
-  if (!inFs && !examFinished) {
-    // keluar fullscreen tanpa izin admin
-    const ov = document.getElementById('fs-exit-overlay');
-    if (ov) {
-      ov.style.display = 'flex';
-      document.getElementById('fs-exit-password').value = '';
-      document.getElementById('fs-exit-msg').textContent = '';
-    }
-    if (proctorSettings.cheatAlarmSound) playCheatAlarm();
-    tabSwitchCount++;
-  }
-}
-
-function setupProctorUi() {
-  const btnSave = document.getElementById('btn-save-proctor');
-  if (btnSave) {
-    btnSave.addEventListener('click', async () => {
-      const st = document.getElementById('proctor-status');
-      proctorSettings = {
-        forceFullscreen: !!document.getElementById('set-force-fullscreen').checked,
-        cheatAlarmSound: !!document.getElementById('set-cheat-alarm').checked
-      };
-      // update config runtime
-      if (window.__CBT_CONFIG__) {
-        window.__CBT_CONFIG__.forceFullscreen = proctorSettings.forceFullscreen;
-        window.__CBT_CONFIG__.cheatAlarmSound = proctorSettings.cheatAlarmSound;
-      }
-      try {
-        if (window.SHSupabase && SHSupabase.sbEnabled()) {
-          await SHSupabase.saveProctorSettings(proctorSettings);
-          st.textContent = 'Tersimpan ke Supabase. Peserta akan memakai setting ini saat memuat ulang / mulai ujian.';
-        } else {
-          st.textContent = 'Tersimpan di sesi admin ini saja. Untuk semua peserta, aktifkan Supabase atau ubah config.json (forceFullscreen / cheatAlarmSound).';
-        }
-      } catch (e) {
-        st.textContent = 'Gagal simpan Supabase: ' + e.message + ' — setting tetap aktif di sesi ini.';
-      }
-    });
-  }
-  const btnOk = document.getElementById('btn-fs-exit-ok');
-  if (btnOk) {
-    btnOk.addEventListener('click', () => {
-      const pass = document.getElementById('fs-exit-password').value;
-      const msg = document.getElementById('fs-exit-msg');
-      if (pass === (config.adminPassword || '')) {
-        fsUnlockedByAdmin = true;
-        document.getElementById('fs-exit-overlay').style.display = 'none';
-        msg.textContent = '';
-      } else {
-        msg.textContent = 'Password salah. Fullscreen akan dipulihkan.';
-        setTimeout(() => enterExamFullscreen(), 500);
-      }
-    });
-  }
-  const btnRe = document.getElementById('btn-fs-reenter');
-  if (btnRe) {
-    btnRe.addEventListener('click', () => {
-      document.getElementById('fs-exit-overlay').style.display = 'none';
-      enterExamFullscreen();
-    });
   }
 }
 

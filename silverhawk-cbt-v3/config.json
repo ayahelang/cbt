@@ -10,9 +10,7 @@
   "supabaseUrl": "",
   "supabaseAnonKey": "",
   "schoolName": "SMA PMA",
-  "version": "2.3.0",
+  "version": "2.2.0",
   "defaultDurationMinutes": 60,
-  "defaultPracticeDurationMinutes": 30,
-  "forceFullscreen": true,
-  "cheatAlarmSound": true
+  "defaultPracticeDurationMinutes": 30
 }

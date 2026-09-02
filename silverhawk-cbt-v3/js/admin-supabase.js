@@ -5,30 +5,22 @@
 (function (global) {
   let currentAdmin = null; // { username, role }
 
-  function getCfg() {
-    return global.__CBT_CONFIG__ || global.config || {};
-  }
-
   function sbEnabled() {
-    const c = getCfg();
-    const url = c.supabaseUrl && String(c.supabaseUrl).trim();
-    const key = c.supabaseAnonKey && String(c.supabaseAnonKey).trim();
-    return !!(url && key);
+    return !!(global.config && config.supabaseUrl && config.supabaseAnonKey &&
+      String(config.supabaseUrl).trim() && String(config.supabaseAnonKey).trim());
   }
 
   function sbHeaders() {
-    const c = getCfg();
     return {
-      'apikey': c.supabaseAnonKey,
-      'Authorization': 'Bearer ' + c.supabaseAnonKey,
+      'apikey': config.supabaseAnonKey,
+      'Authorization': 'Bearer ' + config.supabaseAnonKey,
       'Content-Type': 'application/json',
       'Prefer': 'return=representation'
     };
   }
 
   async function sbFetch(path, options = {}) {
-    const c = getCfg();
-    const url = String(c.supabaseUrl).replace(/\/$/, '') + '/rest/v1/' + path;
+    const url = String(config.supabaseUrl).replace(/\/$/, '') + '/rest/v1/' + path;
     const res = await fetch(url, {
       ...options,
       headers: { ...sbHeaders(), ...(options.headers || {}) }
@@ -252,45 +244,6 @@
     XLSX.writeFile(wb, filename || 'hasil_ujian.xlsx');
   }
 
-  async function getProctorSettings() {
-    const fallback = {
-      forceFullscreen: true,
-      cheatAlarmSound: true
-    };
-    const c = getCfg();
-    if (c.forceFullscreen === false) fallback.forceFullscreen = false;
-    if (c.cheatAlarmSound === false) fallback.cheatAlarmSound = false;
-    if (!sbEnabled()) return fallback;
-    try {
-      const rows = await sbFetch('cbt_settings?key=eq.proctoring&select=value');
-      if (rows && rows[0] && rows[0].value) {
-        return {
-          forceFullscreen: rows[0].value.forceFullscreen !== false,
-          cheatAlarmSound: rows[0].value.cheatAlarmSound !== false
-        };
-      }
-    } catch (e) {
-      console.warn('getProctorSettings', e);
-    }
-    return fallback;
-  }
-
-  async function saveProctorSettings(settings) {
-    if (!sbEnabled()) throw new Error('Supabase belum dikonfigurasi — setting hanya berlaku dari config.json');
-    await sbFetch('cbt_settings?on_conflict=key', {
-      method: 'POST',
-      headers: { 'Prefer': 'resolution=merge-duplicates,return=representation' },
-      body: JSON.stringify({
-        key: 'proctoring',
-        value: {
-          forceFullscreen: !!settings.forceFullscreen,
-          cheatAlarmSound: !!settings.cheatAlarmSound
-        },
-        updated_at: new Date().toISOString()
-      })
-    });
-  }
-
   global.SHSupabase = {
     sbEnabled,
     loginSecondary,
@@ -306,8 +259,6 @@
     getCurrentAdmin,
     setCurrentAdmin,
     isMainAdmin,
-    sha256,
-    getProctorSettings,
-    saveProctorSettings
+    sha256
   };
 })(window);

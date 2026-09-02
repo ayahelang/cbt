@@ -114,7 +114,6 @@
           <button type="button" class="admin-tab active" data-tab="hasil">Hasil Ujian</button>
           <button type="button" class="admin-tab" data-tab="upload">Upload Paket</button>
           <button type="button" class="admin-tab" data-tab="analisis">Analisis Butir</button>
-          <button type="button" class="admin-tab" data-tab="proctor">Proctoring</button>
           <button type="button" class="admin-tab" data-tab="admins" id="tab-admins-btn">Kelola Admin</button>
         </div>
 
@@ -138,13 +137,7 @@
 
         <!-- TAB UPLOAD -->
         <div class="admin-tab-panel" id="tab-upload" style="display:none">
-          <p class="hint" style="margin-bottom:12px">Upload paket soal ke Supabase. Format: <strong>JSON, XLSX, CSV</strong>. DOC lama tidak didukung — pakai Excel/CSV.</p>
-          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">
-            <a class="btn btn-secondary" style="flex:1;text-align:center;text-decoration:none" href="templates/template-soal-pg.xlsx" download>Template PG (XLSX)</a>
-            <a class="btn btn-secondary" style="flex:1;text-align:center;text-decoration:none" href="templates/template-soal-essay.xlsx" download>Template Essay (XLSX)</a>
-            <a class="btn btn-secondary" style="flex:1;text-align:center;text-decoration:none" href="templates/template-soal-pg.csv" download>Template PG (CSV)</a>
-            <a class="btn btn-secondary" style="flex:1;text-align:center;text-decoration:none" href="templates/PANDUAN-TEMPLATE.txt" download>Panduan</a>
-          </div>
+          <p class="hint" style="margin-bottom:12px">Upload paket soal ke database Supabase (gratis). File lokal di GitHub tetap bisa dipakai.</p>
           <div class="form-group">
             <label>ID paket (unik, huruf kecil)</label>
             <input type="text" id="up-pack-id" placeholder="contoh: biologi11" />
@@ -166,16 +159,16 @@
             <input type="number" id="up-pack-dur" value="60" min="5" />
           </div>
           <div class="form-group">
-            <label>File soal PG (JSON / XLSX / CSV)</label>
-            <input type="file" id="up-file-q" accept=".json,.xlsx,.csv,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" />
+            <label>File questions.json (PG)</label>
+            <input type="file" id="up-file-q" accept=".json,application/json" />
           </div>
           <div class="form-group">
-            <label>File essay (JSON / XLSX / CSV, opsional)</label>
-            <input type="file" id="up-file-e" accept=".json,.xlsx,.csv,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" />
+            <label>File essays.json (opsional)</label>
+            <input type="file" id="up-file-e" accept=".json,application/json" />
           </div>
           <div class="form-group">
-            <label>File latihan PG (JSON / XLSX / CSV, opsional)</label>
-            <input type="file" id="up-file-p" accept=".json,.xlsx,.csv,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" />
+            <label>File practice-questions.json (opsional, default = PG)</label>
+            <input type="file" id="up-file-p" accept=".json,application/json" />
           </div>
           <button id="btn-upload-pack" class="btn btn-primary" style="width:100%">Upload / Update Paket</button>
           <div id="upload-status" class="admin-status" style="margin-top:10px"></div>
@@ -195,21 +188,6 @@
           <button id="btn-run-analisis" class="btn btn-primary" style="width:100%;margin-bottom:12px">Jalankan Analisis</button>
           <div id="analisis-status" class="admin-status"></div>
           <div id="analisis-list" class="admin-list"></div>
-        </div>
-
-        <!-- TAB PROCTOR -->
-        <div class="admin-tab-panel" id="tab-proctor" style="display:none">
-          <p class="hint" style="margin-bottom:12px">Pengaturan pengawasan ujian. Default: ON. Disimpan ke Supabase jika tersedia, agar semua peserta membaca setting yang sama.</p>
-          <label class="toggle-row">
-            <input type="checkbox" id="set-force-fullscreen" checked />
-            <span>Paksa mode Fullscreen saat ujian resmi</span>
-          </label>
-          <label class="toggle-row">
-            <input type="checkbox" id="set-cheat-alarm" checked />
-            <span>Bunyi alarm jika terdeteksi pindah tab / indikasi menyontek</span>
-          </label>
-          <button id="btn-save-proctor" class="btn btn-primary" style="width:100%;margin-top:14px">Simpan Pengaturan</button>
-          <div id="proctor-status" class="admin-status" style="margin-top:10px"></div>
         </div>
 
         <!-- TAB KELOLA ADMIN -->
@@ -313,20 +291,6 @@
     </div>
 
     
-    <!-- Fullscreen exit gate -->
-    <div id="fs-exit-overlay" class="anticheat-overlay" style="display:none">
-      <div class="anticheat-box">
-        <h2>Keluar Fullscreen</h2>
-        <p>Ujian masih berlangsung. Masukkan password admin pengawas untuk keluar dari fullscreen.</p>
-        <div class="form-group" style="text-align:left;margin:12px 0">
-          <input type="password" id="fs-exit-password" placeholder="Password admin" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:rgba(6,13,26,0.6);color:var(--text)" />
-        </div>
-        <button type="button" id="btn-fs-exit-ok" class="btn btn-primary">Izinkan keluar</button>
-        <button type="button" id="btn-fs-reenter" class="btn btn-secondary" style="width:100%;margin-top:8px">Kembali ke Fullscreen</button>
-        <p class="hint" id="fs-exit-msg" style="margin-top:10px"></p>
-      </div>
-    </div>
-
     <!-- Anti-cheat warning overlay -->
     <div id="anticheat-overlay" class="anticheat-overlay" style="display:none">
       <div class="anticheat-box">
