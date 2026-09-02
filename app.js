@@ -55,6 +55,10 @@ async function init() {
     renderPackList();
     setupEventListeners();
     setupAntiCheatUi();
+    setupAdminExtendedUi();
+    if (window.SHSupabase && SHSupabase.sbEnabled()) {
+      mergeRemotePacks().catch(err => console.warn('Remote packs:', err));
+    }
   } catch (err) {
     console.error(err);
     document.getElementById('pack-list').innerHTML =
@@ -562,6 +566,9 @@ function finishExam(auto = false) {
   if (!isPracticeMode && config.googleScriptUrl && config.googleScriptUrl.trim() !== '') {
     sendToGoogleSheet(resultData);
   }
+  if (!isPracticeMode && window.SHSupabase && SHSupabase.sbEnabled()) {
+    SHSupabase.saveResult(resultData).catch(err => console.warn('Supabase save:', err));
+  }
 
   examScreen.classList.remove('active');
   resultScreen.classList.add('active');
@@ -854,6 +861,395 @@ function setupAntiCheatUi() {
         `Menampilkan ${filtered.length} dari ${window._adminRows.length} data.`;
       renderAdminList(filtered);
     });
+  }
+}
+
+
+
+
+/* ========== ADMIN EXTENDED (Supabase) ========== */
+async function mergeRemotePacks() {
+  if (!window.SHSupabase || !SHSupabase.sbEnabled()) return;
+  const remote = await SHSupabase.listRemotePacks();
+  (remote || []).forEach(rp => {
+    const pack = {
+      id: rp.id,
+      title: rp.title,
+      subject: rp.subject || '',
+      description: rp.description || '',
+      durationMinutes: rp.duration_minutes || 60,
+      practiceDurationMinutes: rp.practice_duration_minutes || 30,
+      enabled: rp.enabled !== false,
+      valid: true,
+      mcCount: Array.isArray(rp.questions) ? rp.questions.length : 0,
+      essaysCount: Array.isArray(rp.essays) ? rp.essays.length : 0,
+      practiceOk: Array.isArray(rp.practice_questions) && rp.practice_questions.length > 0,
+      _remote: true,
+      _remoteData: rp
+    };
+    const idx = validPacks.findIndex(p => p.id === pack.id);
+    if (idx >= 0) validPacks[idx] = { ...validPacks[idx], ...pack };
+    else validPacks.push(pack);
+  });
+  renderPackList();
+}
+
+// Override selectPack loading for remote packs — patch via wrapper
+const _origSelectPack = selectPack;
+selectPack = async function(pack, btnEl) {
+  if (pack._remote && pack._remoteData) {
+    document.querySelectorAll('.pack-item').forEach(b => b.classList.remove('selected'));
+    if (btnEl) btnEl.classList.add('selected');
+    selectedPack = pack;
+    const rp = pack._remoteData;
+    packQuestions = Array.isArray(rp.questions) ? rp.questions : [];
+    packEssays = Array.isArray(rp.essays) ? rp.essays : [];
+    packPractice = Array.isArray(rp.practice_questions) && rp.practice_questions.length
+      ? rp.practice_questions : packQuestions;
+    document.getElementById('after-pack').style.display = 'block';
+    classSelect.value = '';
+    onClassChange();
+    return;
+  }
+  return _origSelectPack(pack, btnEl);
+};
+
+function setupAdminExtendedUi() {
+  // tabs
+  document.querySelectorAll('.admin-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      const id = tab.getAttribute('data-tab');
+      document.querySelectorAll('.admin-tab-panel').forEach(p => {
+        p.style.display = 'none';
+        p.classList.remove('active');
+      });
+      const panel = document.getElementById('tab-' + id);
+      if (panel) {
+        panel.style.display = 'block';
+        panel.classList.add('active');
+      }
+      if (id === 'admins' && window.SHSupabase) refreshAdminsList();
+      if (id === 'analisis') fillAnalisisPackOptions();
+    });
+  });
+
+  const btnSec = document.getElementById('btn-admin-secondary-enter');
+  if (btnSec) btnSec.addEventListener('click', onSecondaryAdminLogin);
+
+  const btnX = document.getElementById('btn-admin-download-xlsx');
+  if (btnX) btnX.addEventListener('click', adminDownloadXlsx);
+
+  const btnUp = document.getElementById('btn-upload-pack');
+  if (btnUp) btnUp.addEventListener('click', onUploadPack);
+
+  const btnRp = document.getElementById('btn-refresh-remote-packs');
+  if (btnRp) btnRp.addEventListener('click', async () => {
+    try {
+      await mergeRemotePacks();
+      alert('Paket remote dimuat ulang. Kembali ke login untuk melihat daftar.');
+    } catch (e) { alert(e.message); }
+  });
+
+  const btnAn = document.getElementById('btn-run-analisis');
+  if (btnAn) btnAn.addEventListener('click', onRunAnalisis);
+
+  const btnAdd = document.getElementById('btn-add-admin');
+  if (btnAdd) btnAdd.addEventListener('click', onAddAdmin);
+}
+
+async function onSecondaryAdminLogin() {
+  const u = document.getElementById('admin-secondary-user').value.trim();
+  const p = document.getElementById('admin-secondary-pass').value;
+  try {
+    if (!window.SHSupabase || !SHSupabase.sbEnabled()) {
+      alert('Supabase belum diisi di config.json');
+      return;
+    }
+    const admin = await SHSupabase.loginSecondary(u, p);
+    openAdminPanel(admin);
+  } catch (e) {
+    alert(e.message || 'Login gagal');
+  }
+}
+
+function openAdminPanel(admin) {
+  SHSupabase.setCurrentAdmin(admin);
+  document.getElementById('admin-role-label').textContent =
+    admin.role === 'main' ? 'Admin Utama' : ('Admin Tambahan: ' + admin.username);
+  const tabAdmins = document.getElementById('tab-admins-btn');
+  if (tabAdmins) tabAdmins.style.display = admin.role === 'main' ? '' : 'none';
+  loginScreen.classList.remove('active');
+  adminScreen.classList.add('active');
+  document.getElementById('admin-list').innerHTML = '';
+  document.getElementById('admin-status').textContent = 'Klik "Muat Data".';
+  populateAdminPackFilter();
+}
+
+// patch enterAdmin for main via config password
+const _enterAdminOrig = enterAdmin;
+enterAdmin = function() {
+  const pass = document.getElementById('admin-password').value.trim();
+  if (pass !== (config.adminPassword || '')) {
+    alert('Password admin salah.');
+    return;
+  }
+  if (window.SHSupabase) {
+    SHSupabase.setCurrentAdmin({ username: 'main', role: 'main' });
+  }
+  openAdminPanel({ username: 'main', role: 'main' });
+};
+
+// Enhance adminLoadData to also try Supabase results
+const _adminLoadDataOrig = adminLoadData;
+adminLoadData = async function() {
+  const status = document.getElementById('admin-status');
+  status.textContent = 'Memuat...';
+  document.getElementById('admin-list').innerHTML = '';
+  let rows = [];
+
+  // Sheet
+  if (config.googleScriptUrl) {
+    try {
+      const res = await fetch(config.googleScriptUrl + '?action=list');
+      const data = await res.json();
+      (data.rows || []).forEach(r => {
+        rows.push({
+          timestamp: r.timestamp,
+          name: r.name,
+          class: r.class,
+          packId: r.packId || '',
+          packTitle: r.packTitle || '',
+          score: r.score,
+          total: r.total,
+          percent: r.percent,
+          timeUsedSeconds: r.timeUsedSeconds,
+          autoSubmit: r.autoSubmit,
+          tabSwitchCount: r.tabSwitchCount || 0,
+          _source: 'sheet'
+        });
+      });
+    } catch (e) {
+      console.warn('Sheet list failed', e);
+    }
+  }
+
+  // Supabase
+  if (window.SHSupabase && SHSupabase.sbEnabled()) {
+    try {
+      const sbRows = await SHSupabase.listResults();
+      (sbRows || []).forEach(r => {
+        rows.push({
+          timestamp: r.created_at,
+          name: r.student_name,
+          class: r.student_class,
+          packId: r.pack_id || '',
+          packTitle: r.pack_title || '',
+          score: r.score,
+          total: r.total,
+          percent: r.percent,
+          timeUsedSeconds: r.time_used_seconds,
+          autoSubmit: r.auto_submit ? 'YA' : 'TIDAK',
+          tabSwitchCount: r.tab_switch_count || 0,
+          _source: 'supabase',
+          _id: r.id
+        });
+      });
+    } catch (e) {
+      console.warn('Supabase list failed', e);
+    }
+  }
+
+  window._adminRows = rows;
+  // fill filter options
+  const sel = document.getElementById('admin-pack-filter');
+  const seen = new Set(['']);
+  [...sel.options].forEach(o => seen.add(o.value));
+  rows.forEach(r => {
+    if (r.packId && !seen.has(r.packId)) {
+      seen.add(r.packId);
+      const opt = document.createElement('option');
+      opt.value = r.packId;
+      opt.textContent = r.packTitle || r.packId;
+      sel.appendChild(opt);
+    }
+  });
+  const filtered = getFilteredAdminRows();
+  status.textContent = `Menampilkan ${filtered.length} dari ${rows.length} data.`;
+  renderAdminList(filtered);
+};
+
+function adminDownloadXlsx() {
+  const rows = getFilteredAdminRows();
+  if (!rows.length) {
+    alert('Tidak ada data. Muat data dulu.');
+    return;
+  }
+  const filter = document.getElementById('admin-pack-filter')?.value || 'semua';
+  if (window.SHSupabase) {
+    SHSupabase.downloadXlsx(rows, `hasil_${filter}_${new Date().toISOString().slice(0,10)}.xlsx`);
+  } else {
+    alert('Module Excel tidak tersedia');
+  }
+}
+
+async function onUploadPack() {
+  const st = document.getElementById('upload-status');
+  try {
+    if (!window.SHSupabase || !SHSupabase.sbEnabled()) {
+      throw new Error('Isi supabaseUrl & supabaseAnonKey di config.json, jalankan supabase-setup.sql');
+    }
+    if (!SHSupabase.getCurrentAdmin()) throw new Error('Login admin dulu');
+    const id = document.getElementById('up-pack-id').value.trim().toLowerCase().replace(/\s+/g, '-');
+    const title = document.getElementById('up-pack-title').value.trim();
+    if (!id || !title) throw new Error('ID dan Judul wajib');
+    const fq = document.getElementById('up-file-q').files[0];
+    if (!fq) throw new Error('File questions.json wajib');
+    const readJson = (file) => new Promise((resolve, reject) => {
+      if (!file) return resolve([]);
+      const r = new FileReader();
+      r.onload = () => {
+        try { resolve(JSON.parse(r.result)); }
+        catch (e) { reject(new Error('JSON tidak valid: ' + file.name)); }
+      };
+      r.onerror = () => reject(new Error('Gagal baca file'));
+      r.readAsText(file);
+    });
+    const questions = await readJson(fq);
+    if (!Array.isArray(questions) || !questions.length) throw new Error('questions.json harus array berisi soal');
+    const essays = await readJson(document.getElementById('up-file-e').files[0]);
+    let practice = await readJson(document.getElementById('up-file-p').files[0]);
+    if (!practice.length) practice = questions;
+    st.textContent = 'Mengunggah...';
+    await SHSupabase.uploadPack({
+      id,
+      title,
+      subject: document.getElementById('up-pack-subject').value.trim(),
+      description: document.getElementById('up-pack-desc').value.trim(),
+      durationMinutes: parseInt(document.getElementById('up-pack-dur').value, 10) || 60,
+      practiceDurationMinutes: 30,
+      questions,
+      essays,
+      practiceQuestions: practice
+    });
+    st.textContent = 'Berhasil diupload. Klik "Muat Ulang Paket dari Database" atau refresh halaman.';
+    await mergeRemotePacks();
+  } catch (e) {
+    st.textContent = 'Gagal: ' + e.message;
+  }
+}
+
+function fillAnalisisPackOptions() {
+  const sel = document.getElementById('analisis-pack-filter');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">-- Pilih pack --</option>';
+  const ids = new Set();
+  (validPacks || []).forEach(p => {
+    if (p.id && !ids.has(p.id)) {
+      ids.add(p.id);
+      const o = document.createElement('option');
+      o.value = p.id;
+      o.textContent = p.title || p.id;
+      sel.appendChild(o);
+    }
+  });
+  (window._adminRows || []).forEach(r => {
+    if (r.packId && !ids.has(r.packId)) {
+      ids.add(r.packId);
+      const o = document.createElement('option');
+      o.value = r.packId;
+      o.textContent = r.packTitle || r.packId;
+      sel.appendChild(o);
+    }
+  });
+}
+
+async function onRunAnalisis() {
+  const st = document.getElementById('analisis-status');
+  const list = document.getElementById('analisis-list');
+  const packId = document.getElementById('analisis-pack-filter').value;
+  list.innerHTML = '';
+  if (!packId) {
+    st.textContent = 'Pilih pack dulu.';
+    return;
+  }
+  try {
+    if (!window.SHSupabase || !SHSupabase.sbEnabled()) {
+      throw new Error('Analisis butir membutuhkan Supabase (detail jawaban per soal).');
+    }
+    st.textContent = 'Menghitung...';
+    const rows = await SHSupabase.runItemAnalysis(packId);
+    if (!rows.length) {
+      st.textContent = 'Belum ada data jawaban untuk pack ini di Supabase.';
+      return;
+    }
+    st.textContent = `${rows.length} butir dianalisis. P = tingkat kesukaran (0 sukar–1 mudah). D = daya beda.`;
+    rows.forEach(r => {
+      const div = document.createElement('div');
+      div.className = 'analisis-row';
+      const pct = Math.round(r.difficulty * 100);
+      div.innerHTML = `
+        <strong>${escapeHtml(String(r.questionId))}</strong> — benar ${r.correct}/${r.total} (${pct}%)
+        <div style="color:var(--text-muted);margin-top:4px">${escapeHtml((r.questionText || '').substring(0, 120))}...</div>
+        <div>Kesukaran P=${r.difficulty.toFixed(2)} · Daya beda D=${r.discrimination.toFixed(2)}</div>
+        <div class="bar"><span style="width:${pct}%"></span></div>`;
+      list.appendChild(div);
+    });
+  } catch (e) {
+    st.textContent = e.message;
+  }
+}
+
+async function onAddAdmin() {
+  const st = document.getElementById('admins-status');
+  try {
+    const u = document.getElementById('new-admin-user').value.trim();
+    const p = document.getElementById('new-admin-pass').value;
+    await SHSupabase.addAdmin(u, p);
+    st.textContent = 'Admin ditambahkan.';
+    document.getElementById('new-admin-user').value = '';
+    document.getElementById('new-admin-pass').value = '';
+    refreshAdminsList();
+  } catch (e) {
+    st.textContent = e.message;
+  }
+}
+
+async function refreshAdminsList() {
+  const list = document.getElementById('admins-list');
+  const st = document.getElementById('admins-status');
+  if (!list) return;
+  list.innerHTML = '';
+  try {
+    if (!SHSupabase.sbEnabled()) {
+      st.textContent = 'Supabase belum dikonfigurasi.';
+      return;
+    }
+    const rows = await SHSupabase.listAdmins();
+    (rows || []).forEach(r => {
+      const div = document.createElement('div');
+      div.className = 'admin-row';
+      div.innerHTML = `
+        <div class="info"><strong>${escapeHtml(r.username)}</strong> · ${escapeHtml(r.role)}
+        <br><small>${r.active ? 'aktif' : 'nonaktif'} · ${escapeHtml(r.created_at || '')}</small></div>`;
+      if (r.role !== 'main' && r.active && SHSupabase.isMainAdmin()) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'btn-del';
+        b.textContent = 'Nonaktifkan';
+        b.addEventListener('click', async () => {
+          if (!confirm('Nonaktifkan ' + r.username + '?')) return;
+          await SHSupabase.deactivateAdmin(r.id);
+          refreshAdminsList();
+        });
+        div.appendChild(b);
+      }
+      list.appendChild(div);
+    });
+    st.textContent = `${(rows || []).length} admin terdaftar.`;
+  } catch (e) {
+    st.textContent = e.message;
   }
 }
 

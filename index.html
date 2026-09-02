@@ -76,10 +76,21 @@
 
         <div id="admin-login" style="display:none">
           <div class="form-group">
-            <label>Password Admin</label>
-            <input type="password" id="admin-password" placeholder="Password admin" autocomplete="off" />
+            <label>Login Admin Utama (password config)</label>
+            <input type="password" id="admin-password" placeholder="Password admin utama" autocomplete="off" />
           </div>
-          <button id="btn-admin-enter" class="btn btn-primary">Masuk Admin</button>
+          <button id="btn-admin-enter" class="btn btn-primary">Masuk Admin Utama</button>
+          <hr style="border-color:var(--border);margin:16px 0" />
+          <p class="hint" style="margin-bottom:8px">Atau admin tambahan (Supabase)</p>
+          <div class="form-group">
+            <label>Username</label>
+            <input type="text" id="admin-secondary-user" placeholder="username" autocomplete="username" />
+          </div>
+          <div class="form-group">
+            <label>Password</label>
+            <input type="password" id="admin-secondary-pass" placeholder="password" autocomplete="current-password" />
+          </div>
+          <button id="btn-admin-secondary-enter" class="btn btn-secondary" style="width:100%">Masuk Admin Tambahan</button>
           <button type="button" id="btn-back-from-admin" class="btn btn-secondary" style="margin-top:10px;width:100%">← Kembali</button>
         </div>
 
@@ -96,25 +107,108 @@
         <div class="logo-area">
           <div class="logo-circle">SH</div>
           <h1>Panel Admin</h1>
-          <p class="subtitle">Kelola hasil ujian</p>
+          <p class="subtitle" id="admin-role-label">Kelola ujian & paket soal</p>
         </div>
-        <div class="admin-actions">
-          <button id="btn-admin-refresh" class="btn btn-primary">Muat Data dari Sheet</button>
-          <button id="btn-admin-logout" class="btn btn-secondary">Keluar Admin</button>
+
+        <div class="admin-tabs" id="admin-tabs">
+          <button type="button" class="admin-tab active" data-tab="hasil">Hasil Ujian</button>
+          <button type="button" class="admin-tab" data-tab="upload">Upload Paket</button>
+          <button type="button" class="admin-tab" data-tab="analisis">Analisis Butir</button>
+          <button type="button" class="admin-tab" data-tab="admins" id="tab-admins-btn">Kelola Admin</button>
         </div>
-        <div class="form-group" style="margin-bottom:12px">
-          <label>Filter mapel untuk tampilan &amp; download</label>
-          <select id="admin-pack-filter">
-            <option value="">Semua mapel</option>
-          </select>
+
+        <!-- TAB HASIL -->
+        <div class="admin-tab-panel active" id="tab-hasil">
+          <div class="admin-actions">
+            <button id="btn-admin-refresh" class="btn btn-primary">Muat Data</button>
+            <button id="btn-admin-logout" class="btn btn-secondary">Keluar</button>
+          </div>
+          <div class="form-group" style="margin-bottom:12px">
+            <label>Filter mapel</label>
+            <select id="admin-pack-filter">
+              <option value="">Semua mapel</option>
+            </select>
+          </div>
+          <button id="btn-admin-download" class="btn btn-primary" style="width:100%;margin-bottom:8px">Download CSV</button>
+          <button id="btn-admin-download-xlsx" class="btn btn-secondary" style="width:100%;margin-bottom:12px">Download Excel (.xlsx)</button>
+          <div id="admin-status" class="admin-status">Klik "Muat Data".</div>
+          <div id="admin-list" class="admin-list"></div>
         </div>
-        <button id="btn-admin-download" class="btn btn-primary" style="width:100%;margin-bottom:12px">Download CSV (sesuai filter)</button>
-        <div id="admin-status" class="admin-status">Klik "Muat Data" untuk menampilkan daftar.</div>
-        <div id="admin-list" class="admin-list"></div>
+
+        <!-- TAB UPLOAD -->
+        <div class="admin-tab-panel" id="tab-upload" style="display:none">
+          <p class="hint" style="margin-bottom:12px">Upload paket soal ke database Supabase (gratis). File lokal di GitHub tetap bisa dipakai.</p>
+          <div class="form-group">
+            <label>ID paket (unik, huruf kecil)</label>
+            <input type="text" id="up-pack-id" placeholder="contoh: biologi11" />
+          </div>
+          <div class="form-group">
+            <label>Judul</label>
+            <input type="text" id="up-pack-title" placeholder="Biologi Kelas 11" />
+          </div>
+          <div class="form-group">
+            <label>Mapel / subject</label>
+            <input type="text" id="up-pack-subject" placeholder="Biologi" />
+          </div>
+          <div class="form-group">
+            <label>Deskripsi</label>
+            <input type="text" id="up-pack-desc" placeholder="Ujian semester..." />
+          </div>
+          <div class="form-group">
+            <label>Durasi ujian (menit)</label>
+            <input type="number" id="up-pack-dur" value="60" min="5" />
+          </div>
+          <div class="form-group">
+            <label>File questions.json (PG)</label>
+            <input type="file" id="up-file-q" accept=".json,application/json" />
+          </div>
+          <div class="form-group">
+            <label>File essays.json (opsional)</label>
+            <input type="file" id="up-file-e" accept=".json,application/json" />
+          </div>
+          <div class="form-group">
+            <label>File practice-questions.json (opsional, default = PG)</label>
+            <input type="file" id="up-file-p" accept=".json,application/json" />
+          </div>
+          <button id="btn-upload-pack" class="btn btn-primary" style="width:100%">Upload / Update Paket</button>
+          <div id="upload-status" class="admin-status" style="margin-top:10px"></div>
+          <hr style="border-color:var(--border);margin:16px 0" />
+          <button id="btn-refresh-remote-packs" class="btn btn-secondary" style="width:100%">Muat Ulang Paket dari Database</button>
+        </div>
+
+        <!-- TAB ANALISIS -->
+        <div class="admin-tab-panel" id="tab-analisis" style="display:none">
+          <p class="hint" style="margin-bottom:12px">Analisis butir: tingkat kesukaran &amp; daya beda sederhana per soal (butuh Supabase).</p>
+          <div class="form-group">
+            <label>Pilih mapel / pack</label>
+            <select id="analisis-pack-filter">
+              <option value="">-- Pilih pack --</option>
+            </select>
+          </div>
+          <button id="btn-run-analisis" class="btn btn-primary" style="width:100%;margin-bottom:12px">Jalankan Analisis</button>
+          <div id="analisis-status" class="admin-status"></div>
+          <div id="analisis-list" class="admin-list"></div>
+        </div>
+
+        <!-- TAB KELOLA ADMIN -->
+        <div class="admin-tab-panel" id="tab-admins" style="display:none">
+          <p class="hint" style="margin-bottom:12px">Hanya admin utama. Menambah admin tambahan untuk upload soal &amp; lihat nilai.</p>
+          <div class="form-group">
+            <label>Username admin baru</label>
+            <input type="text" id="new-admin-user" placeholder="guru_biologi" />
+          </div>
+          <div class="form-group">
+            <label>Password</label>
+            <input type="password" id="new-admin-pass" placeholder="Minimal 6 karakter" />
+          </div>
+          <button id="btn-add-admin" class="btn btn-primary" style="width:100%;margin-bottom:12px">Tambah Admin</button>
+          <div id="admins-status" class="admin-status"></div>
+          <div id="admins-list" class="admin-list"></div>
+        </div>
       </div>
     </div>
 
-    <!-- EXAM SCREEN -->
+<!-- EXAM SCREEN -->
     <div id="exam-screen" class="screen">
       <header class="exam-header">
         <div class="header-left">
@@ -207,7 +301,9 @@
       </div>
     </div>
 
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
     <script src="https://silverhawk.web.id/lock/lock.js"></script>
+    <script src="js/admin-supabase.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

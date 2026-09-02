@@ -7,8 +7,10 @@
   "practicePassword": "latihanSH",
   "adminPassword": "adminSH2026",
   "googleScriptUrl": "https://script.google.com/macros/s/AKfycbzFx2sLqQKds6TkL0OLw37VulYJWLaxkI8FDoqCbyyfA0oYmfz4FGh2PJfy-u75bWDSbA/exec",
+  "supabaseUrl": "",
+  "supabaseAnonKey": "",
   "schoolName": "SMA PMA",
-  "version": "2.0.0",
+  "version": "2.2.0",
   "defaultDurationMinutes": 60,
   "defaultPracticeDurationMinutes": 30
 }
