@@ -49,6 +49,7 @@ async function init() {
       fetch('catalog.json')
     ]);
     config = await cfgRes.json();
+    window.__CBT_CONFIG__ = config;
     students = await stuRes.json();
     catalog = await catRes.json();
     validPacks = await validateCatalog(catalog.packs || []);
