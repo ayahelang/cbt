@@ -5,22 +5,30 @@
 (function (global) {
   let currentAdmin = null; // { username, role }
 
+  function getCfg() {
+    return global.__CBT_CONFIG__ || global.config || {};
+  }
+
   function sbEnabled() {
-    return !!(global.config && config.supabaseUrl && config.supabaseAnonKey &&
-      String(config.supabaseUrl).trim() && String(config.supabaseAnonKey).trim());
+    const c = getCfg();
+    const url = c.supabaseUrl && String(c.supabaseUrl).trim();
+    const key = c.supabaseAnonKey && String(c.supabaseAnonKey).trim();
+    return !!(url && key);
   }
 
   function sbHeaders() {
+    const c = getCfg();
     return {
-      'apikey': config.supabaseAnonKey,
-      'Authorization': 'Bearer ' + config.supabaseAnonKey,
+      'apikey': c.supabaseAnonKey,
+      'Authorization': 'Bearer ' + c.supabaseAnonKey,
       'Content-Type': 'application/json',
       'Prefer': 'return=representation'
     };
   }
 
   async function sbFetch(path, options = {}) {
-    const url = String(config.supabaseUrl).replace(/\/$/, '') + '/rest/v1/' + path;
+    const c = getCfg();
+    const url = String(c.supabaseUrl).replace(/\/$/, '') + '/rest/v1/' + path;
     const res = await fetch(url, {
       ...options,
       headers: { ...sbHeaders(), ...(options.headers || {}) }
