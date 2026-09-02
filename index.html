@@ -114,6 +114,7 @@
           <button type="button" class="admin-tab active" data-tab="hasil">Hasil Ujian</button>
           <button type="button" class="admin-tab" data-tab="upload">Upload Paket</button>
           <button type="button" class="admin-tab" data-tab="analisis">Analisis Butir</button>
+          <button type="button" class="admin-tab" data-tab="proctor">Proctoring</button>
           <button type="button" class="admin-tab" data-tab="admins" id="tab-admins-btn">Kelola Admin</button>
         </div>
 
@@ -188,6 +189,21 @@
           <button id="btn-run-analisis" class="btn btn-primary" style="width:100%;margin-bottom:12px">Jalankan Analisis</button>
           <div id="analisis-status" class="admin-status"></div>
           <div id="analisis-list" class="admin-list"></div>
+        </div>
+
+        <!-- TAB PROCTOR -->
+        <div class="admin-tab-panel" id="tab-proctor" style="display:none">
+          <p class="hint" style="margin-bottom:12px">Pengaturan pengawasan ujian. Default: ON. Disimpan ke Supabase jika tersedia, agar semua peserta membaca setting yang sama.</p>
+          <label class="toggle-row">
+            <input type="checkbox" id="set-force-fullscreen" checked />
+            <span>Paksa mode Fullscreen saat ujian resmi</span>
+          </label>
+          <label class="toggle-row">
+            <input type="checkbox" id="set-cheat-alarm" checked />
+            <span>Bunyi alarm jika terdeteksi pindah tab / indikasi menyontek</span>
+          </label>
+          <button id="btn-save-proctor" class="btn btn-primary" style="width:100%;margin-top:14px">Simpan Pengaturan</button>
+          <div id="proctor-status" class="admin-status" style="margin-top:10px"></div>
         </div>
 
         <!-- TAB KELOLA ADMIN -->
@@ -291,6 +307,20 @@
     </div>
 
     
+    <!-- Fullscreen exit gate -->
+    <div id="fs-exit-overlay" class="anticheat-overlay" style="display:none">
+      <div class="anticheat-box">
+        <h2>Keluar Fullscreen</h2>
+        <p>Ujian masih berlangsung. Masukkan password admin pengawas untuk keluar dari fullscreen.</p>
+        <div class="form-group" style="text-align:left;margin:12px 0">
+          <input type="password" id="fs-exit-password" placeholder="Password admin" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:rgba(6,13,26,0.6);color:var(--text)" />
+        </div>
+        <button type="button" id="btn-fs-exit-ok" class="btn btn-primary">Izinkan keluar</button>
+        <button type="button" id="btn-fs-reenter" class="btn btn-secondary" style="width:100%;margin-top:8px">Kembali ke Fullscreen</button>
+        <p class="hint" id="fs-exit-msg" style="margin-top:10px"></p>
+      </div>
+    </div>
+
     <!-- Anti-cheat warning overlay -->
     <div id="anticheat-overlay" class="anticheat-overlay" style="display:none">
       <div class="anticheat-box">

@@ -57,6 +57,7 @@ async function init() {
     setupEventListeners();
     setupAntiCheatUi();
     setupAdminExtendedUi();
+    loadProctorSettings().catch(() => {});
     if (window.SHSupabase && SHSupabase.sbEnabled()) {
       mergeRemotePacks().catch(err => console.warn('Remote packs:', err));
     }
@@ -363,8 +364,16 @@ function startExam(name, cls, questionSource, durationMin) {
   examScreen.classList.add('active');
   renderCurrent();
   startTimer();
-  if (!isPracticeMode) startAntiCheat();
-  else stopAntiCheat();
+  if (!isPracticeMode) {
+    startAntiCheat();
+    fsUnlockedByAdmin = false;
+    if (proctorSettings.forceFullscreen) {
+      setTimeout(() => enterExamFullscreen(), 300);
+    }
+  } else {
+    stopAntiCheat();
+    stopFullscreenGuard();
+  }
 }
 
 function startTimer() {
@@ -519,6 +528,8 @@ function finishExam(auto = false) {
   examFinished = true;
   clearInterval(timerInterval);
   stopAntiCheat();
+  stopFullscreenGuard();
+  exitExamFullscreenQuiet();
   saveCurrentEssay();
 
   let correct = 0;
@@ -802,6 +813,9 @@ function adminDownloadCSV() {
  */
 let tabSwitchCount = 0;
 let anticheatActive = false;
+let proctorSettings = { forceFullscreen: true, cheatAlarmSound: true };
+let fsUnlockedByAdmin = false;
+let fsGuardActive = false;
 
 function startAntiCheat() {
   tabSwitchCount = 0;
@@ -843,6 +857,32 @@ function showAntiCheatWarning() {
   msg.textContent = 'Terdeteksi Anda meninggalkan tab ujian (pindah tab / minimize). Kembali ke tab ini untuk melanjutkan.';
   cnt.textContent = 'Jumlah pelanggaran: ' + tabSwitchCount;
   ov.style.display = 'flex';
+  if (proctorSettings.cheatAlarmSound) playCheatAlarm();
+}
+
+function playCheatAlarm() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const beep = (freq, start, dur) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'square';
+      o.frequency.value = freq;
+      g.gain.value = 0.15;
+      o.connect(g);
+      g.connect(ctx.destination);
+      o.start(ctx.currentTime + start);
+      o.stop(ctx.currentTime + start + dur);
+    };
+    // pola sirene singkat biar pengawas terdengar
+    beep(880, 0, 0.18);
+    beep(660, 0.2, 0.18);
+    beep(880, 0.4, 0.18);
+    beep(660, 0.6, 0.22);
+    setTimeout(() => ctx.close(), 1200);
+  } catch (e) {
+    console.warn('Alarm sound failed', e);
+  }
 }
 
 function setupAntiCheatUi() {
@@ -958,6 +998,7 @@ function setupAdminExtendedUi() {
 
   const btnAdd = document.getElementById('btn-add-admin');
   if (btnAdd) btnAdd.addEventListener('click', onAddAdmin);
+  setupProctorUi();
 }
 
 async function onSecondaryAdminLogin() {
@@ -1251,6 +1292,126 @@ async function refreshAdminsList() {
     st.textContent = `${(rows || []).length} admin terdaftar.`;
   } catch (e) {
     st.textContent = e.message;
+  }
+}
+
+
+
+
+async function loadProctorSettings() {
+  if (window.SHSupabase && SHSupabase.getProctorSettings) {
+    proctorSettings = await SHSupabase.getProctorSettings();
+  } else {
+    proctorSettings = {
+      forceFullscreen: config.forceFullscreen !== false,
+      cheatAlarmSound: config.cheatAlarmSound !== false
+    };
+  }
+  const fs = document.getElementById('set-force-fullscreen');
+  const al = document.getElementById('set-cheat-alarm');
+  if (fs) fs.checked = !!proctorSettings.forceFullscreen;
+  if (al) al.checked = !!proctorSettings.cheatAlarmSound;
+}
+
+function enterExamFullscreen() {
+  const el = document.documentElement;
+  const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+  if (req) {
+    Promise.resolve(req.call(el)).catch(() => {
+      alert('Izinkan mode fullscreen untuk memulai ujian (wajib jika proctoring aktif).');
+    });
+  }
+  startFullscreenGuard();
+}
+
+function exitExamFullscreenQuiet() {
+  fsUnlockedByAdmin = true;
+  stopFullscreenGuard();
+  if (document.fullscreenElement || document.webkitFullscreenElement) {
+    const exit = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+    if (exit) Promise.resolve(exit.call(document)).catch(() => {});
+  }
+}
+
+function startFullscreenGuard() {
+  if (fsGuardActive) return;
+  fsGuardActive = true;
+  document.addEventListener('fullscreenchange', onFullscreenChange);
+  document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+}
+
+function stopFullscreenGuard() {
+  fsGuardActive = false;
+  document.removeEventListener('fullscreenchange', onFullscreenChange);
+  document.removeEventListener('webkitfullscreenchange', onFullscreenChange);
+  const ov = document.getElementById('fs-exit-overlay');
+  if (ov) ov.style.display = 'none';
+}
+
+function onFullscreenChange() {
+  if (examFinished || isPracticeMode || !proctorSettings.forceFullscreen) return;
+  if (fsUnlockedByAdmin) return;
+  const inFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  if (!inFs && !examFinished) {
+    // keluar fullscreen tanpa izin admin
+    const ov = document.getElementById('fs-exit-overlay');
+    if (ov) {
+      ov.style.display = 'flex';
+      document.getElementById('fs-exit-password').value = '';
+      document.getElementById('fs-exit-msg').textContent = '';
+    }
+    if (proctorSettings.cheatAlarmSound) playCheatAlarm();
+    tabSwitchCount++;
+  }
+}
+
+function setupProctorUi() {
+  const btnSave = document.getElementById('btn-save-proctor');
+  if (btnSave) {
+    btnSave.addEventListener('click', async () => {
+      const st = document.getElementById('proctor-status');
+      proctorSettings = {
+        forceFullscreen: !!document.getElementById('set-force-fullscreen').checked,
+        cheatAlarmSound: !!document.getElementById('set-cheat-alarm').checked
+      };
+      // update config runtime
+      if (window.__CBT_CONFIG__) {
+        window.__CBT_CONFIG__.forceFullscreen = proctorSettings.forceFullscreen;
+        window.__CBT_CONFIG__.cheatAlarmSound = proctorSettings.cheatAlarmSound;
+      }
+      try {
+        if (window.SHSupabase && SHSupabase.sbEnabled()) {
+          await SHSupabase.saveProctorSettings(proctorSettings);
+          st.textContent = 'Tersimpan ke Supabase. Peserta akan memakai setting ini saat memuat ulang / mulai ujian.';
+        } else {
+          st.textContent = 'Tersimpan di sesi admin ini saja. Untuk semua peserta, aktifkan Supabase atau ubah config.json (forceFullscreen / cheatAlarmSound).';
+        }
+      } catch (e) {
+        st.textContent = 'Gagal simpan Supabase: ' + e.message + ' — setting tetap aktif di sesi ini.';
+      }
+    });
+  }
+  const btnOk = document.getElementById('btn-fs-exit-ok');
+  if (btnOk) {
+    btnOk.addEventListener('click', () => {
+      const pass = document.getElementById('fs-exit-password').value;
+      const msg = document.getElementById('fs-exit-msg');
+      if (pass === (config.adminPassword || '')) {
+        fsUnlockedByAdmin = true;
+        document.getElementById('fs-exit-overlay').style.display = 'none';
+        msg.textContent = '';
+      } else {
+        msg.textContent = 'Password salah. Fullscreen akan dipulihkan.';
+        setTimeout(() => enterExamFullscreen(), 500);
+      }
+    });
+  }
+  const btnRe = document.getElementById('btn-fs-reenter');
+  if (btnRe) {
+    btnRe.addEventListener('click', () => {
+      document.getElementById('fs-exit-overlay').style.display = 'none';
+      enterExamFullscreen();
+    });
   }
 }
 

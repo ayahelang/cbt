@@ -73,3 +73,17 @@ create policy "cbt_admins_all" on cbt_admins for all using (true) with check (tr
 create policy "cbt_results_all" on cbt_results for all using (true) with check (true);
 create policy "cbt_answer_all" on cbt_answer_items for all using (true) with check (true);
 create policy "cbt_packs_all" on cbt_packs for all using (true) with check (true);
+
+-- Pengaturan proctoring (fullscreen + alarm)
+create table if not exists cbt_settings (
+  key text primary key,
+  value jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
+alter table cbt_settings enable row level security;
+create policy "cbt_settings_all" on cbt_settings for all using (true) with check (true);
+
+insert into cbt_settings (key, value) values
+  ('proctoring', '{"forceFullscreen": true, "cheatAlarmSound": true}'::jsonb)
+on conflict (key) do nothing;
