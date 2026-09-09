@@ -592,11 +592,11 @@ function finishExam(auto = false) {
     essays: essaySummary
   };
 
-  if (!isPracticeMode && config.googleScriptUrl && config.googleScriptUrl.trim() !== '') {
-    sendToGoogleSheet(resultData);
-  }
+  // Simpan ke satu sumber utama agar tidak dobel di panel admin
   if (!isPracticeMode && window.SHSupabase && SHSupabase.sbEnabled()) {
     SHSupabase.saveResult(resultData).catch(err => console.warn('Supabase save:', err));
+  } else if (!isPracticeMode && config.googleScriptUrl && config.googleScriptUrl.trim() !== '') {
+    sendToGoogleSheet(resultData);
   }
 
   examScreen.classList.remove('active');
@@ -1101,41 +1101,17 @@ enterAdmin = function() {
   openAdminPanel({ username: 'main', role: 'main' });
 };
 
-// Enhance adminLoadData to also try Supabase results
+// Enhance adminLoadData: Supabase = sumber utama (hindari data dobel Sheet+Supabase)
 const _adminLoadDataOrig = adminLoadData;
 adminLoadData = async function() {
   const status = document.getElementById('admin-status');
   status.textContent = 'Memuat...';
   document.getElementById('admin-list').innerHTML = '';
   let rows = [];
+  let fromSb = 0;
+  let fromSheet = 0;
 
-  // Sheet
-  if (config.googleScriptUrl) {
-    try {
-      const res = await fetch(config.googleScriptUrl + '?action=list');
-      const data = await res.json();
-      (data.rows || []).forEach(r => {
-        rows.push({
-          timestamp: r.timestamp,
-          name: r.name,
-          class: r.class,
-          packId: r.packId || '',
-          packTitle: r.packTitle || '',
-          score: r.score,
-          total: r.total,
-          percent: r.percent,
-          timeUsedSeconds: r.timeUsedSeconds,
-          autoSubmit: r.autoSubmit,
-          tabSwitchCount: r.tabSwitchCount || 0,
-          _source: 'sheet'
-        });
-      });
-    } catch (e) {
-      console.warn('Sheet list failed', e);
-    }
-  }
-
-  // Supabase
+  // 1) Supabase dulu
   if (window.SHSupabase && SHSupabase.sbEnabled()) {
     try {
       const sbRows = await SHSupabase.listResults();
@@ -1155,28 +1131,68 @@ adminLoadData = async function() {
           _source: 'supabase',
           _id: r.id
         });
+        fromSb++;
       });
     } catch (e) {
       console.warn('Supabase list failed', e);
     }
   }
 
-  window._adminRows = rows;
-  // fill filter options
-  const sel = document.getElementById('admin-pack-filter');
-  const seen = new Set(['']);
-  [...sel.options].forEach(o => seen.add(o.value));
-  rows.forEach(r => {
-    if (r.packId && !seen.has(r.packId)) {
-      seen.add(r.packId);
-      const opt = document.createElement('option');
-      opt.value = r.packId;
-      opt.textContent = r.packTitle || r.packId;
-      sel.appendChild(opt);
+  // 2) Sheet hanya jika Supabase kosong / tidak aktif (cadangan)
+  if (fromSb === 0 && config.googleScriptUrl) {
+    try {
+      const res = await fetch(config.googleScriptUrl + '?action=list');
+      const data = await res.json();
+      (data.rows || []).forEach(r => {
+        rows.push({
+          timestamp: r.timestamp,
+          name: r.name,
+          class: r.class,
+          packId: r.packId || '',
+          packTitle: r.packTitle || '',
+          score: r.score,
+          total: r.total,
+          percent: r.percent,
+          timeUsedSeconds: r.timeUsedSeconds,
+          autoSubmit: r.autoSubmit,
+          tabSwitchCount: r.tabSwitchCount || 0,
+          _source: 'sheet'
+        });
+        fromSheet++;
+      });
+    } catch (e) {
+      console.warn('Sheet list failed', e);
     }
+  }
+
+  // Dedup tambahan: nama+kelas+packId+skor (jaga-jaga)
+  const seen = new Set();
+  rows = rows.filter(r => {
+    const key = [r.name, r.class, r.packId, r.score, r.total].join('|').toLowerCase();
+    if (seen.has(key) && r._source === 'sheet') return false;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
   });
+
+  window._adminRows = rows;
+  const sel = document.getElementById('admin-pack-filter');
+  if (sel) {
+    const seenOpt = new Set(['']);
+    [...sel.options].forEach(o => seenOpt.add(o.value));
+    rows.forEach(r => {
+      if (r.packId && !seenOpt.has(r.packId)) {
+        seenOpt.add(r.packId);
+        const opt = document.createElement('option');
+        opt.value = r.packId;
+        opt.textContent = r.packTitle || r.packId;
+        sel.appendChild(opt);
+      }
+    });
+  }
   const filtered = getFilteredAdminRows();
-  status.textContent = `Menampilkan ${filtered.length} dari ${rows.length} data.`;
+  const srcNote = fromSb ? ('Supabase ' + fromSb) : (fromSheet ? ('Sheet ' + fromSheet) : '0');
+  status.textContent = 'Menampilkan ' + filtered.length + ' dari ' + rows.length + ' data (' + srcNote + ').';
   renderAdminList(filtered);
 };
 
