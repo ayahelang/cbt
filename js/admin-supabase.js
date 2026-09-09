@@ -142,6 +142,18 @@
     return row;
   }
 
+  /** Cek apakah nama+kelas sudah pernah submit ujian untuk packId tertentu */
+  async function hasTakenExam(name, cls, packId) {
+    if (!sbEnabled()) return false;
+    const path =
+      'cbt_results?select=id&student_name=eq.' + encodeURIComponent(name) +
+      '&student_class=eq.' + encodeURIComponent(cls) +
+      '&pack_id=eq.' + encodeURIComponent(packId || '') +
+      '&limit=1';
+    const rows = await sbFetch(path);
+    return Array.isArray(rows) && rows.length > 0;
+  }
+
   async function listResults() {
     if (!sbEnabled()) return [];
     return await sbFetch('cbt_results?select=*&order=created_at.desc&limit=2000');
@@ -298,6 +310,7 @@
     listAdmins,
     deactivateAdmin,
     saveResult,
+    hasTakenExam,
     listResults,
     uploadPack,
     listRemotePacks,
