@@ -293,18 +293,29 @@ async function onStartClick() {
   btnStart.disabled = true;
   btnStart.textContent = 'Memeriksa...';
 
-  if (config.googleScriptUrl && config.googleScriptUrl.trim() !== '') {
+  // Blokir retake per packId via Supabase (bukan Google Sheet)
+  if (window.SHSupabase && SHSupabase.sbEnabled()) {
     try {
-      const exists = await checkNameInSheet(name, cls);
-      if (exists) {
-        alert('Nama ini sudah pernah mengikuti ujian dan datanya tercatat di sistem.\nAnda tidak dapat mengikuti ujian lagi.');
+      const taken = await SHSupabase.hasTakenExam(name, cls, selectedPack.id);
+      if (taken) {
+        alert(
+          'Anda sudah pernah menyelesaikan ujian paket ini (' +
+          (selectedPack.title || selectedPack.id) +
+          ').\nSetiap paket hanya boleh dikerjakan satu kali.\nHubungi guru jika ada kendala.'
+        );
         btnStart.disabled = false;
         btnStart.textContent = 'Mulai Ujian';
         return;
       }
     } catch (err) {
-      console.warn('Gagal cek ke Sheet:', err);
+      console.warn('Gagal cek status ujian ke Supabase:', err);
+      alert('Tidak dapat memverifikasi status ujian saat ini.\nPeriksa koneksi internet lalu coba lagi.');
+      btnStart.disabled = false;
+      btnStart.textContent = 'Mulai Ujian';
+      return;
     }
+  } else {
+    console.warn('Supabase belum aktif — pembatasan retake per pack tidak berjalan.');
   }
 
   isPracticeMode = false;
