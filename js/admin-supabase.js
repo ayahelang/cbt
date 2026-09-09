@@ -29,15 +29,21 @@
   async function sbFetch(path, options = {}) {
     const c = getCfg();
     const url = String(c.supabaseUrl).replace(/\/$/, '') + '/rest/v1/' + path;
+    const method = (options.method || 'GET').toUpperCase();
+    const headers = { ...sbHeaders(), ...(options.headers || {}) };
+    // DELETE sering 204 tanpa body
+    if (method === 'DELETE' && !options.headers?.Prefer) {
+      headers['Prefer'] = 'return=minimal';
+    }
     const res = await fetch(url, {
       ...options,
-      headers: { ...sbHeaders(), ...(options.headers || {}) }
+      headers
     });
     const text = await res.text();
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch (_) { data = text; }
     if (!res.ok) {
-      const msg = (data && data.message) || (data && data.error) || res.statusText || 'error';
+      const msg = (data && data.message) || (data && data.error) || res.statusText || ('HTTP ' + res.status);
       throw new Error(msg);
     }
     return data;
@@ -143,15 +149,43 @@
   }
 
   /** Cek apakah nama+kelas sudah pernah submit ujian untuk packId tertentu */
-  async function hasTakenExam(name, cls, packId) {
+    async function hasTakenExam(name, cls, packId) {
     if (!sbEnabled()) return false;
-    const path =
-      'cbt_results?select=id&student_name=eq.' + encodeURIComponent(name) +
-      '&student_class=eq.' + encodeURIComponent(cls) +
-      '&pack_id=eq.' + encodeURIComponent(packId || '') +
+    const q =
+      'cbt_results?select=id&student_name=eq.' + encodeURIComponent(String(name || '').trim()) +
+      '&student_class=eq.' + encodeURIComponent(String(cls || '').trim()) +
+      '&pack_id=eq.' + encodeURIComponent(String(packId || '').trim()) +
       '&limit=1';
-    const rows = await sbFetch(path);
+    const rows = await sbFetch(q);
     return Array.isArray(rows) && rows.length > 0;
+  }
+
+  /** Hapus 1 hasil ujian + detail jawaban (Supabase) */
+  async function deleteResult(resultId) {
+    if (!sbEnabled()) throw new Error('Supabase belum aktif');
+    if (resultId === undefined || resultId === null || resultId === '') {
+      throw new Error('ID hasil ujian tidak valid');
+    }
+    const id = String(resultId);
+    // hapus child dulu
+    await sbFetch('cbt_answer_items?result_id=eq.' + encodeURIComponent(id), { method: 'DELETE' });
+    await sbFetch('cbt_results?id=eq.' + encodeURIComponent(id), { method: 'DELETE' });
+    return true;
+  }
+
+  /** Hapus semua hasil nama+kelas+pack (jika id tidak ada) */
+  async function deleteResultsByStudent(name, cls, packId) {
+    if (!sbEnabled()) throw new Error('Supabase belum aktif');
+    let q =
+      'cbt_results?select=id&student_name=eq.' + encodeURIComponent(String(name || '').trim()) +
+      '&student_class=eq.' + encodeURIComponent(String(cls || '').trim());
+    if (packId) q += '&pack_id=eq.' + encodeURIComponent(String(packId).trim());
+    const rows = await sbFetch(q);
+    if (!Array.isArray(rows) || !rows.length) return 0;
+    for (const r of rows) {
+      await deleteResult(r.id);
+    }
+    return rows.length;
   }
 
   async function listResults() {
@@ -311,6 +345,8 @@
     deactivateAdmin,
     saveResult,
     hasTakenExam,
+    deleteResult,
+    deleteResultsByStudent,
     listResults,
     uploadPack,
     listRemotePacks,

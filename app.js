@@ -293,26 +293,32 @@ async function onStartClick() {
   btnStart.disabled = true;
   btnStart.textContent = 'Memeriksa...';
 
-  // Blokir retake per packId via Supabase (bukan Google Sheet)
-  if (window.SHSupabase && SHSupabase.sbEnabled()) {
-    try {
-      const taken = await SHSupabase.hasTakenExam(name, cls, selectedPack.id);
-      if (taken) {
+  // Blokir retake per packId via Supabase
+  if (window.SHSupabase && typeof SHSupabase.sbEnabled === 'function' && SHSupabase.sbEnabled()) {
+    if (typeof SHSupabase.hasTakenExam !== 'function') {
+      console.warn('hasTakenExam belum ter-deploy. Upload js/admin-supabase.js terbaru.');
+    } else {
+      try {
+        const taken = await SHSupabase.hasTakenExam(name, cls, selectedPack.id);
+        if (taken) {
+          alert(
+            'Anda sudah pernah menyelesaikan ujian paket ini (' +
+            (selectedPack.title || selectedPack.id) +
+            ').\nSetiap paket hanya boleh dikerjakan satu kali.\nHubungi guru jika ada kendala.'
+          );
+          btnStart.disabled = false;
+          btnStart.textContent = 'Mulai Ujian';
+          return;
+        }
+      } catch (err) {
+        console.warn('Gagal cek status ujian ke Supabase:', err);
+        // Jangan kunci semua siswa jika API error — izinkan mulai, retake tetap dicegah saat data terbaca
         alert(
-          'Anda sudah pernah menyelesaikan ujian paket ini (' +
-          (selectedPack.title || selectedPack.id) +
-          ').\nSetiap paket hanya boleh dikerjakan satu kali.\nHubungi guru jika ada kendala.'
+          'Peringatan: status ujian tidak bisa dicek saat ini (' +
+          (err && err.message ? err.message : 'error') +
+          ').\nJika Anda sudah pernah submit paket ini, hasil ganda dapat ditolak guru.\nLanjut memulai ujian...'
         );
-        btnStart.disabled = false;
-        btnStart.textContent = 'Mulai Ujian';
-        return;
       }
-    } catch (err) {
-      console.warn('Gagal cek status ujian ke Supabase:', err);
-      alert('Tidak dapat memverifikasi status ujian saat ini.\nPeriksa koneksi internet lalu coba lagi.');
-      btnStart.disabled = false;
-      btnStart.textContent = 'Mulai Ujian';
-      return;
     }
   } else {
     console.warn('Supabase belum aktif — pembatasan retake per pack tidak berjalan.');
@@ -735,7 +741,7 @@ function renderAdminList(rows) {
       <br><small>${escapeHtml(packLabel)} • ${escapeHtml(row.timestamp || '')}</small></div>
       <div class="score">${row.score}/${row.total} (${row.percent}%)</div>
       <button type="button" class="btn-del">Hapus</button>`;
-    div.querySelector('.btn-del').addEventListener('click', () => adminDeleteRow(row.name, row.class));
+    div.querySelector('.btn-del').addEventListener('click', () => adminDeleteRow(row));
     list.appendChild(div);
   });
 }
@@ -783,20 +789,61 @@ async function adminLoadData() {
   }
 }
 
-async function adminDeleteRow(name, cls) {
-  if (!confirm(`Hapus record "${name}" kelas ${cls}?`)) return;
-  try {
-    const url = config.googleScriptUrl +
-      '?action=delete&name=' + encodeURIComponent(name) +
-      '&class=' + encodeURIComponent(cls);
-    const res = await fetch(url);
-    const data = await res.json();
-    if (data.status === 'ok') {
-      alert('Record dihapus.');
-      adminLoadData();
-    } else alert('Gagal: ' + (data.message || ''));
-  } catch (err) {
-    alert('Gagal menghapus. Cek Apps Script action=delete.');
+async function adminDeleteRow(row) {
+  // row: object dari list admin (bisa dari Supabase atau Sheet)
+  const name = row && row.name;
+  const cls = row && row.class;
+  const packId = (row && row.packId) || '';
+  const packLabel = (row && (row.packTitle || row.packId)) || '';
+  if (!name || !cls) {
+    alert('Data baris tidak valid.');
+    return;
+  }
+  if (!confirm('Hapus record "' + name + '" kelas ' + cls + (packLabel ? ' (' + packLabel + ')' : '') + '?')) return;
+
+  let deleted = false;
+  const errors = [];
+
+  // 1) Hapus dari Supabase (sumber utama)
+  if (window.SHSupabase && SHSupabase.sbEnabled()) {
+    try {
+      if (row._id != null && row._id !== '' && typeof SHSupabase.deleteResult === 'function') {
+        await SHSupabase.deleteResult(row._id);
+        deleted = true;
+      } else if (typeof SHSupabase.deleteResultsByStudent === 'function') {
+        const n = await SHSupabase.deleteResultsByStudent(name, cls, packId || undefined);
+        if (n > 0) deleted = true;
+        else errors.push('Supabase: data tidak ditemukan');
+      } else {
+        errors.push('Fungsi hapus Supabase belum ter-deploy (upload js/admin-supabase.js)');
+      }
+    } catch (e) {
+      console.warn('Supabase delete failed', e);
+      errors.push('Supabase: ' + (e.message || e));
+    }
+  }
+
+  // 2) Opsional: hapus juga di Google Sheet (jika masih dipakai arsip)
+  if (config.googleScriptUrl && config.googleScriptUrl.trim()) {
+    try {
+      const url = config.googleScriptUrl +
+        '?action=delete&name=' + encodeURIComponent(name) +
+        '&class=' + encodeURIComponent(cls);
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data && data.ok) deleted = true;
+      else if (data && data.error) errors.push('Sheet: ' + data.error);
+    } catch (e) {
+      console.warn('Sheet delete failed', e);
+      errors.push('Sheet: ' + (e.message || e));
+    }
+  }
+
+  if (deleted) {
+    alert('Record dihapus.' + (errors.length ? '\nCatatan: ' + errors.join('; ') : ''));
+    await adminLoadData();
+  } else {
+    alert('Gagal menghapus.\n' + (errors.length ? errors.join('\n') : 'Tidak ada sumber data yang berhasil dihapus.'));
   }
 }
 
