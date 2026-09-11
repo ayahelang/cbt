@@ -1503,9 +1503,13 @@ async function refreshAdminsList() {
       const div = document.createElement('div');
       div.className = 'admin-row';
       const dn = r.display_name || '';
+      const exp = r.subscription_expires_at ? String(r.subscription_expires_at) : 'tidak expired';
+      const proof = r.transfer_proof_url ? (' · bukti: ' + r.transfer_proof_url) : '';
       div.innerHTML = '<div class="info" style="flex:1"><strong>' + escapeHtml(dn || r.username) +
         '</strong> · <code>' + escapeHtml(r.username) + '</code><br><small>' +
-        (r.active ? 'aktif' : 'nonaktif') + ' · ' + escapeHtml(r.created_at || '') + '</small></div>';
+        (r.active === false ? 'nonaktif' : 'aktif') + ' · exp: ' + escapeHtml(exp) +
+        proof + (r.transfer_note ? (' · ' + escapeHtml(r.transfer_note)) : '') +
+        '</small></div>';
       if (SHSupabase.isMainAdmin()) {
         const actions = document.createElement('div');
         actions.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px';
@@ -1540,8 +1544,31 @@ async function refreshAdminsList() {
             refreshAdminsList();
           } catch (e) { alert(e.message); }
         };
+        const btnAct = document.createElement('button');
+        btnAct.type = 'button'; btnAct.className = 'btn-del';
+        btnAct.textContent = r.active === false ? 'Aktifkan' : 'Nonaktifkan';
+        btnAct.onclick = async () => {
+          try {
+            await SHSupabase.setAdminActive(r.id, r.active === false);
+            refreshAdminsList();
+          } catch (e) { alert(e.message); }
+        };
+        const btnExp = document.createElement('button');
+        btnExp.type = 'button'; btnExp.className = 'btn-del'; btnExp.textContent = 'Set Expired';
+        btnExp.onclick = async () => {
+          const cur = r.subscription_expires_at ? String(r.subscription_expires_at).slice(0, 10) : '';
+          const d = prompt('Tanggal expired (YYYY-MM-DD). Kosongkan = tidak expired:', cur);
+          if (d === null) return;
+          try {
+            const iso = d.trim() ? (d.trim() + 'T23:59:59+07:00') : null;
+            await SHSupabase.setAdminExpiry(r.id, iso);
+            refreshAdminsList();
+          } catch (e) { alert(e.message); }
+        };
         actions.appendChild(btnReset);
         actions.appendChild(btnEdit);
+        actions.appendChild(btnAct);
+        actions.appendChild(btnExp);
         actions.appendChild(btnDel);
         div.appendChild(actions);
       }
@@ -1558,6 +1585,46 @@ async function refreshAdminsList() {
 
 
 
+
+async function onMpBulkClass() {
+  const id = document.getElementById('mp-pack-id').value;
+  const st = document.getElementById('mp-part-status');
+  if (!id) { st.textContent = 'Pilih paket dulu.'; return; }
+  const cls = document.getElementById('mp-part-class').value;
+  const names = (students[cls] || []).slice();
+  if (!names.length) { st.textContent = 'Tidak ada nama di students.json kelas ' + cls; return; }
+  if (!confirm('Tambah ' + names.length + ' santriwati kelas ' + cls + ' ke paket ini?')) return;
+  try {
+    const n = await SHSupabase.bulkAddClassParticipants(id, cls, names);
+    st.textContent = 'Ditambahkan/diupdate: ' + n + ' peserta kelas ' + cls;
+    refreshMpParticipants(id);
+  } catch (e) { st.textContent = e.message; }
+}
+
+async function onMpSyncClass() {
+  // sama bulk: merge nama baru dari students.json
+  return onMpBulkClass();
+}
+
+async function onSaveMyTransfer() {
+  const st = document.getElementById('my-transfer-status');
+  try {
+    const admin = SHSupabase.getCurrentAdmin();
+    if (!admin || admin.role === 'main') {
+      st.textContent = 'Fitur ini untuk admin tambahan (isi bukti sendiri). Admin utama set expired di daftar bawah.';
+      return;
+    }
+    const rows = await SHSupabase.listAdmins();
+    const me = (rows || []).find(r => r.username === admin.username);
+    if (!me) { st.textContent = 'Akun tidak ditemukan.'; return; }
+    const url = document.getElementById('my-transfer-url').value.trim();
+    const note = document.getElementById('my-transfer-note').value.trim();
+    await SHSupabase.setTransferProof(me.id, url, note);
+    st.textContent = 'Bukti transfer disimpan. Menunggu admin utama memeriksa.';
+  } catch (e) { st.textContent = e.message; }
+}
+
+
 let _managePacksCache = [];
 function setupPackManageUi() {
   const map = [
@@ -1567,7 +1634,10 @@ function setupPackManageUi() {
     ['btn-mp-add-item', onMpAddItem],
     ['btn-mp-merge', onMpMerge],
     ['btn-mp-add-part', onMpAddPart],
-    ['btn-mp-acl-save', onMpAclSave]
+    ['btn-mp-acl-save', onMpAclSave],
+    ['btn-mp-bulk-class', onMpBulkClass],
+    ['btn-mp-sync-class', onMpSyncClass],
+    ['btn-my-transfer', onSaveMyTransfer]
   ];
   map.forEach(([id, fn]) => {
     const el = document.getElementById(id);
@@ -1601,9 +1671,11 @@ async function selectManagePack(p) {
   document.getElementById('mp-pack-title').value = p.title || '';
   document.getElementById('mp-edit-status').textContent = 'Paket dipilih: ' + p.id;
   const aclSec = document.getElementById('mp-acl-section');
-  if (aclSec) aclSec.style.display = SHSupabase.isMainAdmin() ? 'block' : 'none';
+  const perm = p._perm || {};
+  const canGrant = SHSupabase.isMainAdmin() || perm.is_owner || perm.can_grant;
+  if (aclSec) aclSec.style.display = canGrant ? 'block' : 'none';
   await refreshMpParticipants(p.id);
-  if (SHSupabase.isMainAdmin()) await refreshMpAcl(p.id);
+  if (canGrant) await refreshMpAcl(p.id);
 }
 async function refreshMpParticipants(packId) {
   const list = document.getElementById('mp-part-list');
@@ -1671,7 +1743,15 @@ async function onMpDelete() {
   const id = document.getElementById('mp-pack-id').value;
   const st = document.getElementById('mp-edit-status');
   if (!id) { st.textContent = 'Pilih paket dulu.'; return; }
-  if (!confirm('Hapus paket ' + id + ' permanen?')) return;
+  const msg = 'HAPUS PAKET "' + id + '"?\n\n' +
+    'Risiko:\n' +
+    '• Paket hilang dari daftar ujian siswa\n' +
+    '• Daftar peserta & hak akses (ACL) paket ini ikut terhapus\n' +
+    '• Riwayat nilai di database tetap ada, tetapi tidak terhubung ke paket di UI\n' +
+    '• Tidak menghapus akun admin\n' +
+    '• Paket file di GitHub (jika ada) tidak terpengaruh\n\n' +
+    'Lanjutkan hapus permanen?';
+  if (!confirm(msg)) return;
   try {
     await SHSupabase.deletePack(id);
     st.textContent = 'Paket dihapus.';
@@ -1732,7 +1812,7 @@ async function onMpAclSave() {
       can_rename: document.getElementById('mp-acl-rename').checked,
       can_edit_items: document.getElementById('mp-acl-edit').checked,
       can_manage_participants: document.getElementById('mp-acl-part').checked,
-      can_delete: document.getElementById('mp-acl-del').checked
+      can_delete: false
     });
     document.getElementById('mp-acl-user').value = '';
     refreshMpAcl(id);

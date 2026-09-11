@@ -218,14 +218,16 @@
           <div id="mp-edit-status" class="admin-status"></div>
 
           <hr style="border-color:var(--border);margin:16px 0" />
-          <h3 style="font-size:0.95rem;margin:12px 0 8px">Peserta paket</h3>
-          <p class="hint">Kosong = semua siswa kelas boleh ikut (mode lama).</p>
-          <div class="form-group"><label>Kelas</label>
+          <h3 style="font-size:0.95rem;margin:12px 0 8px">Peserta paket (santriwati)</h3>
+          <p class="hint">Kosong = semua siswa kelas boleh ikut. Bulk kelas menyalin dari students.json saat ini; siswa baru perlu "Sinkron kelas".</p>
+          <div class="form-group"><label>Kelas untuk bulk / tambah</label>
             <select id="mp-part-class"><option value="51">51</option><option value="52">52</option></select>
           </div>
-          <div class="form-group"><label>Nama (harus sama dengan daftar ujian)</label><input type="text" id="mp-part-name" /></div>
+          <button id="btn-mp-bulk-class" class="btn btn-primary" style="width:100%;margin-bottom:8px">Tambah semua santriwati kelas ini</button>
+          <button id="btn-mp-sync-class" class="btn btn-secondary" style="width:100%;margin-bottom:8px">Sinkron kelas (tambah nama baru dari students.json)</button>
+          <div class="form-group"><label>Nama individu (include / harus sama daftar ujian)</label><input type="text" id="mp-part-name" /></div>
           <div class="form-group"><label>Nama tampilan (opsional)</label><input type="text" id="mp-part-display" /></div>
-          <button id="btn-mp-add-part" class="btn btn-primary" style="width:100%;margin-bottom:8px">Tambah Peserta</button>
+          <button id="btn-mp-add-part" class="btn btn-primary" style="width:100%;margin-bottom:8px">Tambah 1 peserta</button>
           <div id="mp-part-list" class="admin-list"></div>
           <div id="mp-part-status" class="admin-status"></div>
 
@@ -233,10 +235,10 @@
             <hr style="border-color:var(--border);margin:16px 0" />
             <h3 style="font-size:0.95rem;margin:12px 0 8px">Hak admin lain (hanya admin utama)</h3>
             <div class="form-group"><label>Username admin tambahan</label><input type="text" id="mp-acl-user" /></div>
+            <p class="hint">Hanya owner/admin utama. Hak hapus paket tidak bisa digrant.</p>
             <label class="toggle-row"><input type="checkbox" id="mp-acl-rename" /><span>Rename judul</span></label>
             <label class="toggle-row"><input type="checkbox" id="mp-acl-edit" /><span>Edit/tambah butir</span></label>
             <label class="toggle-row"><input type="checkbox" id="mp-acl-part" /><span>Kelola peserta</span></label>
-            <label class="toggle-row"><input type="checkbox" id="mp-acl-del" /><span>Hapus paket</span></label>
             <button id="btn-mp-acl-save" class="btn btn-primary" style="width:100%;margin-top:10px">Simpan Hak</button>
             <div id="mp-acl-list" class="admin-list" style="margin-top:10px"></div>
           </div>
@@ -273,7 +275,7 @@
 
         <!-- TAB KELOLA ADMIN -->
         <div class="admin-tab-panel" id="tab-admins" style="display:none">
-          <p class="hint" style="margin-bottom:12px">Hanya admin utama. Tambah, reset password, ubah nama, hapus (paket pindah ke utama).</p>
+          <p class="hint" style="margin-bottom:12px">Admin utama: kelola akun, aktif/nonaktif, tanggal expired langganan, lihat bukti transfer. Hapus admin → paket pindah ke utama. Default admin baru: belum expired.</p>
           <div class="form-group">
             <label>Nama asli</label>
             <input type="text" id="new-admin-display" placeholder="Nama guru" />
@@ -288,6 +290,13 @@
           </div>
           <button id="btn-add-admin" class="btn btn-primary" style="width:100%;margin-bottom:12px">Tambah Admin</button>
           <div id="admins-status" class="admin-status"></div>
+          <div id="my-transfer-box" style="margin-bottom:14px;padding:12px;border:1px solid var(--border);border-radius:10px">
+            <p class="hint" style="margin-bottom:8px">Bukti transfer langganan (admin tambahan). Admin utama memeriksa manual lalu set tanggal expired.</p>
+            <div class="form-group"><label>URL bukti (Drive/Foto)</label><input type="text" id="my-transfer-url" placeholder="https://..." /></div>
+            <div class="form-group"><label>Catatan</label><input type="text" id="my-transfer-note" placeholder="Tgl transfer, nominal..." /></div>
+            <button id="btn-my-transfer" class="btn btn-secondary" style="width:100%">Simpan Bukti Transfer Saya</button>
+            <div id="my-transfer-status" class="admin-status"></div>
+          </div>
           <div id="admins-list" class="admin-list"></div>
         </div>
       </div>
