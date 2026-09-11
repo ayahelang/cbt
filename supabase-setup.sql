@@ -131,3 +131,6 @@ update cbt_packs set owner_username = 'main' where owner_username is null or own
 alter table cbt_admins add column if not exists subscription_expires_at timestamptz default null;
 alter table cbt_admins add column if not exists transfer_proof_url text default '';
 alter table cbt_admins add column if not exists transfer_note text default '';
+
+-- v2.6 see supabase-migration-v26.sql
+
