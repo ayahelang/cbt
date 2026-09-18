@@ -1724,6 +1724,7 @@ let _managePacksCache = [];
 function setupPackManageUi() {
   const map = [
     ['btn-refresh-manage-packs', refreshManagePacksList],
+    ['btn-sync-catalog-packs', onSyncCatalogPacksClick],
     ['btn-mp-rename', onMpRename],
     ['btn-mp-delete', onMpDelete],
     ['btn-mp-add-item', onMpAddItem],
@@ -1744,6 +1745,60 @@ function setupPackManageUi() {
     if (el) el.addEventListener('click', fn);
   });
 }
+
+/** Daftarkan paket dari catalog.json (Web Design, SMM, dll.) ke database agar muncul di Kelola Paket */
+async function syncLocalCatalogPacksToDb() {
+  if (!window.SHSupabase || !SHSupabase.sbEnabled() || !SHSupabase.getCurrentAdmin()) return [];
+  const packs = (validPacks || []).filter(p => p && p.id && !p._remote);
+  const payload = [];
+  for (const p of packs) {
+    try {
+      let questions = [], essays = [], practice = [];
+      if (p.questionsFile) {
+        try { questions = await fetch(p.questionsFile).then(r => r.json()); } catch (_) {}
+      }
+      if (p.essaysFile) {
+        try { essays = await fetch(p.essaysFile).then(r => r.json()); } catch (_) {}
+      }
+      if (p.practiceFile) {
+        try { practice = await fetch(p.practiceFile).then(r => r.json()); } catch (_) {}
+      }
+      payload.push({
+        meta: {
+          id: p.id,
+          title: p.title,
+          subject: p.subject,
+          description: p.description,
+          durationMinutes: p.durationMinutes,
+          practiceDurationMinutes: p.practiceDurationMinutes,
+          enabled: p.enabled !== false
+        },
+        questions: Array.isArray(questions) ? questions : [],
+        essays: Array.isArray(essays) ? essays : [],
+        practice: Array.isArray(practice) ? practice : []
+      });
+    } catch (e) {
+      console.warn('sync pack skip', p.id, e);
+    }
+  }
+  if (!payload.length) return [];
+  return await SHSupabase.syncAllCatalogPacks(payload);
+}
+
+async function onSyncCatalogPacksClick() {
+  const st = document.getElementById('manage-packs-status');
+  try {
+    st.textContent = 'Mendaftarkan paket lokal...';
+    const res = await syncLocalCatalogPacksToDb();
+    const ok = (res || []).filter(x => x.ok).length;
+    const created = (res || []).filter(x => x.ok && x.created).length;
+    st.textContent = 'Selesai: ' + ok + ' paket tersinkron (' + created + ' baru). Klik Muat Daftar Paket jika perlu.';
+    await refreshManagePacksList();
+  } catch (e) {
+    st.textContent = e.message || 'Gagal sinkron';
+  }
+}
+
 async function refreshManagePacksList() {
   const list = document.getElementById('manage-packs-list');
   const st = document.getElementById('manage-packs-status');
@@ -1752,6 +1807,15 @@ async function refreshManagePacksList() {
   try {
     if (!window.SHSupabase || !SHSupabase.sbEnabled()) { st.textContent = 'Layanan data belum dikonfigurasi.'; return; }
     if (!SHSupabase.getCurrentAdmin()) { st.textContent = 'Login admin dulu.'; return; }
+    st.textContent = 'Menyinkronkan paket lokal ke database...';
+    try {
+      const syncRes = await syncLocalCatalogPacksToDb();
+      const nNew = (syncRes || []).filter(x => x.ok && x.created).length;
+      const nOk = (syncRes || []).filter(x => x.ok).length;
+      if (nOk) console.log('Catalog sync', syncRes);
+    } catch (e) {
+      console.warn('Catalog sync', e);
+    }
     _managePacksCache = await SHSupabase.listManageablePacks();
     if (!_managePacksCache.length) { st.textContent = 'Belum ada paket yang bisa dikelola.'; return; }
     let nameMap = { main: 'Admin Utama' };
