@@ -246,7 +246,7 @@ async function populateClassSelectForPack(packId) {
     if (!parts || !parts.length) {
       const opt = document.createElement('option');
       opt.value = '';
-      opt.textContent = '-- Paket belum ada peserta --';
+      opt.textContent = '-- Belum ada peserta di paket (atur di Kelola Paket) --';
       classSelect.appendChild(opt);
       return;
     }
@@ -298,7 +298,7 @@ async function onClassChange() {
     }
     const parts = await SHSupabase.listParticipants(packId);
     if (!parts || !parts.length) {
-      alert('Paket ini belum memiliki peserta. Admin harus memilih minimal satu peserta di Kelola Paket.');
+      alert('Paket ini belum memiliki peserta. Admin: buka Kelola Paket → pilih paket → centang peserta → Simpan. Jika daftar kelas masih kosong, buka Kelola Peserta → Impor data awal.');
       return;
     }
     const allowed = parts.filter(x => {
@@ -1734,7 +1734,10 @@ function setupPackManageUi() {
     ['btn-mp-add-pw', onMpAddPassword],
     ['btn-my-transfer', onSaveMyTransfer],
     ['btn-mc-add', onMcAddClass],
-    ['btn-mc-add-member', onMcAddMember]
+    ['btn-mc-add-member', onMcAddMember],
+    ['btn-mc-import-legacy', onMcImportLegacy],
+    ['btn-mp-assign-all-master', onMpAssignAllMaster],
+    ['btn-mp-select-all-tree', onMpSelectAllTree]
   ];
   map.forEach(([id, fn]) => {
     const el = document.getElementById(id);
@@ -2203,6 +2206,55 @@ async function onMpAddPassword() {
     document.getElementById('mp-pw-duration').value = '';
     st.textContent = 'Password ditambahkan.';
     refreshMpPasswords(id);
+  } catch (e) {
+    st.textContent = e.message;
+  }
+}
+
+
+async function onMcImportLegacy() {
+  const st = document.getElementById('mc-import-status');
+  try {
+    st.textContent = 'Mengimpor...';
+    // Baca students.json HANYA sebagai sumber impor sekali (bukan penyimpanan rutin)
+    let legacy = null;
+    try {
+      const res = await fetch('students.json', { cache: 'no-store' });
+      if (res.ok) legacy = await res.json();
+    } catch (_) {}
+    if (!legacy || typeof legacy !== 'object') {
+      st.textContent = 'File data awal tidak ditemukan. Tambah kelas/peserta manual di form bawah.';
+      return;
+    }
+    const institution = (config && config.schoolName) || 'SMA PMA';
+    const r = await SHSupabase.importLegacyStudents(legacy, institution);
+    st.textContent = 'Impor selesai. Kelas baru: ' + r.classCount + ', peserta diproses: ' + r.memberCount + '. Lanjut atur peserta di Kelola Paket.';
+    refreshMasterClasses();
+  } catch (e) {
+    st.textContent = e.message || 'Gagal impor';
+  }
+}
+
+async function onMpSelectAllTree() {
+  document.querySelectorAll('#mp-checkbox-tree input[type="checkbox"]').forEach(cb => { cb.checked = true; });
+  const st = document.getElementById('mp-part-status');
+  if (st) st.textContent = 'Semua dicentang. Klik Simpan Pilihan Peserta Paket.';
+}
+
+async function onMpAssignAllMaster() {
+  const id = document.getElementById('mp-pack-id').value;
+  const st = document.getElementById('mp-part-status');
+  if (!id) { st.textContent = 'Pilih paket dulu.'; return; }
+  try {
+    const all = await SHSupabase.listAllMasterMembers();
+    if (!all.length) {
+      st.textContent = 'Master peserta kosong. Buka Kelola Peserta → Impor data awal dulu.';
+      return;
+    }
+    if (!confirm('Masukkan ' + all.length + ' peserta dari seluruh kelas master ke paket ini?')) return;
+    const n = await SHSupabase.replacePackParticipants(id, all);
+    st.textContent = 'Tersimpan: ' + n + ' peserta pada paket.';
+    await renderMpCheckboxTree(id);
   } catch (e) {
     st.textContent = e.message;
   }

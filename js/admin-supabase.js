@@ -884,6 +884,63 @@
     return !!(rows && rows.length);
   }
 
+
+  /**
+   * Impor sekali dari objek legacy { "51": ["Nama",...], "52": [...] }
+   * ke cbt_classes + cbt_class_members. Tidak menulis file JSON.
+   */
+  async function importLegacyStudents(legacyMap, institution) {
+    if (!(await canManageMasterRoster())) throw new Error('Tidak punya hak kelola data peserta');
+    institution = String(institution || 'SMA PMA').trim() || 'SMA PMA';
+    if (!legacyMap || typeof legacyMap !== 'object') throw new Error('Data sumber tidak valid');
+    let classCount = 0, memberCount = 0;
+    for (const className of Object.keys(legacyMap)) {
+      const names = legacyMap[className];
+      if (!Array.isArray(names)) continue;
+      // cek kelas sudah ada (sama nama + instansi)
+      const existing = await sbFetch(
+        'cbt_classes?name=eq.' + encodeURIComponent(String(className)) +
+        '&institution=eq.' + encodeURIComponent(institution) + '&select=id&limit=1'
+      );
+      let classId;
+      if (existing && existing[0]) {
+        classId = existing[0].id;
+      } else {
+        const created = await createClass(String(className), institution);
+        classId = created && created.id;
+        classCount++;
+      }
+      if (!classId) continue;
+      for (const name of names) {
+        const nm = String(name || '').trim();
+        if (!nm) continue;
+        await addClassMember(classId, nm, nm);
+        memberCount++;
+      }
+    }
+    return { classCount, memberCount };
+  }
+
+  /** Ambil seluruh anggota master (semua kelas aktif) */
+  async function listAllMasterMembers() {
+    const classes = await listClasses();
+    const out = [];
+    for (const c of (classes || [])) {
+      const members = await listClassMembers(c.id);
+      (members || []).forEach(m => {
+        out.push({
+          class_id: c.id,
+          student_class: c.name,
+          student_name: m.participant_name,
+          display_name: m.display_name || m.participant_name,
+          member_id: m.id,
+          institution: c.institution || ''
+        });
+      });
+    }
+    return out;
+  }
+
   global.SHSupabase = {
     sbEnabled,
     loginSecondary,
@@ -940,6 +997,8 @@
     listAdminsNameMap,
     replacePackParticipants,
     getPackParticipantKeys,
+    importLegacyStudents,
+    listAllMasterMembers,
     listPackPasswords,
     addPackPassword,
     updatePackPassword,
