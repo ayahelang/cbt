@@ -181,3 +181,8 @@ Gunakan script yang sama dengan v1.2 (doPost + check + list + delete).
 Tidak perlu diubah jika sudah terpasang.
 
 Silverhawk Network • SMA PMA
+
+## Domain & database
+- Domain: `https://cbt.silverhawk.web.id`
+- Supabase project **boleh sama** dengan QuizIT (`quizit.silverhawk.web.id`) — cukup URL + anon key yang sama di `config.json`.
+- Paket QuizIT memakai ID berawalan `quizit-` agar tidak bentrok dengan paket CBT.
