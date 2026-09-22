@@ -402,6 +402,8 @@
       can_rename: !!flags.can_rename,
       can_edit_items: !!flags.can_edit_items,
       can_manage_participants: !!flags.can_manage_participants,
+      can_manage_passwords: !!flags.can_manage_passwords,
+      can_grant: !!flags.can_grant,
       can_delete: false
     };
     // Admin tambahan hanya boleh grant subset hak yang dia punya

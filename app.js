@@ -1,3 +1,41 @@
+
+let _upPackIdManual = false;
+function slugifyPackId(title) {
+  return String(title || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
+}
+function fillDatalist(listId, values) {
+  const el = document.getElementById(listId);
+  if (!el) return;
+  const uniq = [...new Set((values || []).map(v => String(v || '').trim()).filter(Boolean))].sort((a,b) => a.localeCompare(b, 'id'));
+  el.innerHTML = uniq.map(v => '<option value="' + escapeHtml(v).replace(/"/g, '&quot;') + '"></option>').join('');
+}
+async function refreshAdminDatalists() {
+  try {
+    if (!window.SHSupabase || !SHSupabase.sbEnabled()) return;
+    const classes = await SHSupabase.listAllClassesAdmin();
+    fillDatalist('mc-name-list', (classes || []).map(c => c.name));
+    fillDatalist('mc-inst-list', (classes || []).map(c => c.institution));
+    let members = [];
+    try { members = await SHSupabase.listAllMasterMembers(); } catch (_) {}
+    fillDatalist('mc-member-name-list', (members || []).map(m => m.display_name || m.participant_name || m.student_name));
+    try {
+      const admins = await SHSupabase.listAdmins();
+      fillDatalist('mp-acl-user-list', (admins || []).filter(a => a.role !== 'main').map(a => a.username));
+    } catch (_) {}
+  } catch (e) { console.warn(e); }
+}
+function wireUploadPackIdAuto() {
+  const title = document.getElementById('up-pack-title');
+  const idEl = document.getElementById('up-pack-id');
+  if (!title || !idEl) return;
+  idEl.addEventListener('input', () => { _upPackIdManual = true; });
+  title.addEventListener('input', () => {
+    if (_upPackIdManual && idEl.value.trim()) return;
+    idEl.value = slugifyPackId(title.value);
+    _upPackIdManual = false;
+  });
+}
 /**
  * Silverhawk CBT v2.0 — Multi-mapel via catalog.json
  */
@@ -181,6 +219,8 @@ async function selectPack(pack, btnEl) {
 }
 
 function setupEventListeners() {
+  wireUploadPackIdAuto();
+  setTimeout(refreshAdminDatalists, 1200);
   classSelect.addEventListener('change', onClassChange);
   examPassword.addEventListener('input', checkStartReady);
   nameSelect.addEventListener('change', checkStartReady);
@@ -1849,6 +1889,8 @@ async function refreshManagePacksList() {
   } catch (e) { st.textContent = e.message; }
 }
 async function selectManagePack(p) {
+  const edit = document.getElementById('mp-edit-section');
+  if (edit) edit.style.display = 'block';
   document.getElementById('mp-pack-id').value = p.id;
   document.getElementById('mp-pack-title').value = p.title || '';
   document.getElementById('mp-edit-status').textContent = 'Paket dipilih: ' + p.id;
