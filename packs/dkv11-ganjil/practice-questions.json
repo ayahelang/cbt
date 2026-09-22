@@ -1,0 +1,302 @@
+[
+  {
+    "id": 1,
+    "question": "Desain Komunikasi Visual (DKV) secara umum bertujuan untuk…",
+    "options": [
+      "Menyampaikan pesan melalui elemen visual agar mudah dipahami audiens",
+      "Hanya menggambar dekorasi tanpa mempertimbangkan pesan",
+      "Mengganti seluruh teks dengan angka statistik saja",
+      "Membatasi karya hanya untuk keperluan ujian sekolah",
+      "Menghapus warna agar desain terlihat lebih formal"
+    ],
+    "answer": 0
+  },
+  {
+    "id": 2,
+    "question": "Prinsip hierarchy dalam desain visual berguna untuk…",
+    "options": [
+      "Menuntun mata audiens melihat informasi dari yang paling penting ke kurang penting",
+      "Membuat semua elemen memiliki ukuran dan warna yang sama",
+      "Menghilangkan kontras agar tampilan lebih datar",
+      "Menyembunyikan logo agar tidak mengganggu layout",
+      "Mengacak posisi elemen tanpa aturan"
+    ],
+    "answer": 0
+  },
+  {
+    "id": 3,
+    "question": "Dalam teori warna, warna komplementer adalah…",
+    "options": [
+      "Pasangan warna yang berhadapan di roda warna sehingga kontrasnya kuat",
+      "Warna yang selalu sama dengan warna primer saja",
+      "Warna yang hanya muncul pada mode grayscale",
+      "Warna yang tidak boleh digunakan pada media cetak",
+      "Warna yang identik dengan warna latar belakang"
+    ],
+    "answer": 0
+  },
+  {
+    "id": 4,
+    "question": "Perbedaan utama gambar raster dan vektor adalah…",
+    "options": [
+      "Raster berbasis piksel, vektor berbasis jalur matematis yang mudah diperbesar tanpa pecah",
+      "Vektor selalu lebih jelek kualitasnya dibanding raster",
+      "Raster tidak bisa diedit di software desain apa pun",
+      "Vektor hanya bisa dicetak hitam-putih",
+      "Raster otomatis menjadi vektor saat diekspor PDF"
+    ],
+    "answer": 0
+  },
+  {
+    "id": 5,
+    "question": "Satuan resolusi yang umum dipakai untuk keperluan cetak offset adalah…",
+    "options": [
+      "DPI (dots per inch), biasanya sekitar 300 DPI untuk hasil tajam",
+      "FPS (frames per second) seperti pada video",
+      "Kbps yang dipakai untuk bitrate audio",
+      "Hz yang dipakai untuk frekuensi suara",
+      "Px saja tanpa mempertimbangkan ukuran cetak fisik"
+    ],
+    "answer": 0
+  },
+  {
+    "id": 6,
+    "question": "Tipografi yang baik pada poster informasi sebaiknya…",
+    "options": [
+      "Mudah dibaca, hierarki jelas, dan sesuai karakter pesan",
+      "Menggunakan sebanyak mungkin jenis font dalam satu poster",
+      "Memakai font dekoratif kecil untuk seluruh body text",
+      "Menghindari spasi antar huruf agar teks padat",
+      "Menumpuk teks di tepi tanpa margin aman"
+    ],
+    "answer": 0
+  },
+  {
+    "id": 7,
+    "question": "White space (ruang kosong) dalam layout berfungsi untuk…",
+    "options": [
+      "Memberi napas visual, meningkatkan keterbacaan, dan menonjolkan elemen penting",
+      "Menunjukkan bahwa desainer kekurangan ide isi konten",
+      "Wajib diisi dekorasi agar tidak ada area kosong",
+      "Mengurangi profesionalitas desain cetak",
+      "Hanya dipakai pada desain website, bukan media cetak"
+    ],
+    "answer": 0
+  },
+  {
+    "id": 8,
+    "question": "Logo yang efektif umumnya memiliki sifat…",
+    "options": [
+      "Sederhana, mudah diingat, relevan dengan identitas brand, dan fleksibel di berbagai ukuran",
+      "Sangat detail sehingga hanya bagus jika dicetak ukuran billboard",
+      "Berganti total setiap minggu agar selalu segar",
+      "Tidak perlu berhubungan dengan bidang usaha brand",
+      "Hanya berupa foto produk tanpa simbol atau tipografi"
+    ],
+    "answer": 0
+  },
+  {
+    "id": 9,
+    "question": "Mode warna CMYK paling tepat digunakan untuk…",
+    "options": [
+      "Persiapan file yang akan dicetak (print)",
+      "Desain yang hanya ditampilkan di layar monitor",
+      "Animasi 3D real-time di game",
+      "Pengaturan volume audio pada video",
+      "Kompresi file tanpa kehilangan data"
+    ],
+    "answer": 0
+  },
+  {
+    "id": 10,
+    "question": "Mode warna RGB paling tepat digunakan untuk…",
+    "options": [
+      "Karya yang ditampilkan di layar (web, sosmed, presentasi digital)",
+      "Semua jenis cetak offset tanpa konversi",
+      "Ukiran logam dan sablon manual saja",
+      "Pengganti format file PDF/X",
+      "Mengukur ketebalan kertas cetak"
+    ],
+    "answer": 0
+  },
+  {
+    "id": 11,
+    "question": "Alignment dalam prinsip desain berarti…",
+    "options": [
+      "Penjajaran elemen agar tampilan rapi dan terstruktur",
+      "Memperbesar semua objek hingga memenuhi halaman",
+      "Menghapus grid agar layout lebih bebas tanpa aturan",
+      "Mengubah semua teks menjadi huruf kapital",
+      "Menyembunyikan elemen di luar area cetak"
+    ],
+    "answer": 0
+  },
+  {
+    "id": 12,
+    "question": "Contrast pada desain visual berguna untuk…",
+    "options": [
+      "Membedakan elemen, meningkatkan fokus, dan memperkuat hierarki informasi",
+      "Menyamakan semua warna agar terlihat lembut",
+      "Mengurangi legibility teks secara sengaja",
+      "Menghilangkan bayangan pada objek vektor",
+      "Mengganti tipografi menjadi ikon saja"
+    ],
+    "answer": 0
+  },
+  {
+    "id": 13,
+    "question": "Bleed pada file siap cetak adalah…",
+    "options": [
+      "Area tambahan di luar potongan akhir agar tidak ada tepi putih saat trimming",
+      "Nama teknik mewarnai dengan cat air pada kanvas",
+      "Ukuran margin aman untuk teks penting",
+      "Resolusi minimum untuk unggahan Instagram",
+      "Format kompresi gambar lossy"
+    ],
+    "answer": 0
+  },
+  {
+    "id": 14,
+    "question": "Safe margin / area aman pada desain cetak sebaiknya…",
+    "options": [
+      "Menempatkan teks dan elemen penting tidak terlalu dekat dengan tepi potong",
+      "Diisi penuh oleh background gelap tanpa elemen lain",
+      "Dihapus agar desain lebih luas hingga tepi kertas",
+      "Hanya berlaku untuk desain kemasan plastik",
+      "Diganti dengan garis potong diagonal"
+    ],
+    "answer": 0
+  },
+  {
+    "id": 15,
+    "question": "Mockup dalam proses DKV biasanya digunakan untuk…",
+    "options": [
+      "Menampilkan pratinjau karya pada konteks nyata (kaos, kemasan, billboard, dll.)",
+      "Mengganti file asli menjadi format teks murni",
+      "Menghapus layer agar file lebih ringan",
+      "Mengukur kecepatan prosesor komputer desainer",
+      "Menyimpan password proteksi file PSD"
+    ],
+    "answer": 0
+  },
+  {
+    "id": 16,
+    "question": "Dalam branding, konsistensi visual penting karena…",
+    "options": [
+      "Membantu audiens mengenali identitas brand di berbagai media",
+      "Membuat brand terlihat membosankan tanpa variasi sama sekali",
+      "Mengharuskan warna berbeda di setiap platform",
+      "Menghapus kebutuhan akan logo resmi",
+      "Hanya berlaku untuk perusahaan skala internasional"
+    ],
+    "answer": 0
+  },
+  {
+    "id": 17,
+    "question": "Hak cipta (copyright) pada karya desain berarti…",
+    "options": [
+      "Perlindungan hukum atas karya yang dibuat, sehingga tidak boleh dipakai sembarangan tanpa izin",
+      "Izin bebas memakai karya orang lain untuk kepentingan komersial",
+      "Kewajiban menghapus nama desainer dari setiap karya",
+      "Aturan yang hanya berlaku di luar Indonesia",
+      "Larangan menyimpan file sumber (.ai/.psd) di komputer sendiri"
+    ],
+    "answer": 0
+  },
+  {
+    "id": 18,
+    "question": "Grid system pada layout majalah atau poster membantu desainer untuk…",
+    "options": [
+      "Menyusun elemen secara konsisten, rapi, dan seimbang",
+      "Menghilangkan kebutuhan prinsip alignment",
+      "Memaksa semua foto menjadi hitam putih",
+      "Mengganti tipografi menjadi handwriting saja",
+      "Menghapus margin dan bleed secara otomatis"
+    ],
+    "answer": 0
+  },
+  {
+    "id": 19,
+    "question": "Format file yang umum dipakai untuk logo vektor siap skalabilitas tinggi adalah…",
+    "options": [
+      "AI, EPS, atau SVG tergantung kebutuhan software dan media",
+      "MP3 atau WAV untuk kualitas suara terbaik",
+      "TXT tanpa styling visual",
+      "CSV untuk data tabel nilai siswa",
+      "EXE agar logo bisa dijalankan sebagai aplikasi"
+    ],
+    "answer": 0
+  },
+  {
+    "id": 20,
+    "question": "Audience / target audiens perlu dianalisis sebelum mendesain karena…",
+    "options": [
+      "Gaya visual, bahasa, dan media harus sesuai karakteristik penerima pesan",
+      "Desain yang baik tidak perlu mempertimbangkan siapa yang melihatnya",
+      "Semua audiens selalu menyukai gaya yang sama",
+      "Analisis audiens hanya untuk divisi pemasaran, bukan desainer",
+      "Target audiens ditentukan setelah karya dicetak massal"
+    ],
+    "answer": 0
+  },
+  {
+    "id": 21,
+    "question": "Dalam fotografi produk untuk keperluan DKV, lighting yang baik terutama bertujuan…",
+    "options": [
+      "Menampilkan bentuk, tekstur, dan detail produk secara jelas dan menarik",
+      "Membuat bayangan ekstrem hingga produk tidak dikenali",
+      "Menghilangkan seluruh kontras warna produk",
+      "Mengganti produk dengan ilustrasi tanpa foto",
+      "Mengurangi resolusi agar file cepat diunggah"
+    ],
+    "answer": 0
+  },
+  {
+    "id": 22,
+    "question": "Layer pada software desain grafis bermanfaat untuk…",
+    "options": [
+      "Mengelola elemen terpisah agar mudah diedit tanpa merusak bagian lain",
+      "Menggabungkan semua objek menjadi satu piksel permanen sejak awal",
+      "Menghapus history undo secara otomatis",
+      "Mengubah mode warna dari RGB ke CMYK tanpa konversi",
+      "Menonaktifkan keyboard shortcut"
+    ],
+    "answer": 0
+  },
+  {
+    "id": 23,
+    "question": "Thumbnail yang efektif untuk konten media sosial sebaiknya…",
+    "options": [
+      "Menarik perhatian, teks terbaca di ukuran kecil, dan mewakili isi konten",
+      "Penuh teks paragraf panjang yang hanya terbaca di desktop",
+      "Tanpa kontras agar menyatu dengan feed",
+      "Menggunakan watermark besar menutupi seluruh objek utama",
+      "Selalu dibuat hitam polos tanpa elemen visual"
+    ],
+    "answer": 0
+  },
+  {
+    "id": 24,
+    "question": "Sketsa (rough sketch) di tahap awal proses desain berguna untuk…",
+    "options": [
+      "Mengeksplorasi ide dengan cepat sebelum eksekusi digital yang detail",
+      "Menggantikan file final yang dikirim ke klien",
+      "Mengukur biaya cetak secara otomatis",
+      "Menentukan password file presentasi",
+      "Menghapus kebutuhan riset referensi visual"
+    ],
+    "answer": 0
+  },
+  {
+    "id": 25,
+    "question": "Evaluasi karya DKV setelah selesai idealnya mencakup…",
+    "options": [
+      "Kesesuaian pesan, keterbacaan, estetika, dan ketepatan teknis media tujuan",
+      "Hanya jumlah like di media sosial tanpa kriteria lain",
+      "Ukuran file semata tanpa melihat kualitas visual",
+      "Penghapusan semua proses sketsa dan riset",
+      "Penggantian konsep total tanpa feedback"
+    ],
+    "answer": 0
+  }
+]

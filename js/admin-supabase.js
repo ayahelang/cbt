@@ -308,11 +308,27 @@
     };
   }
 
+  function currentProductId() {
+    return (typeof config !== 'undefined' && config.productId) ||
+      (global.__CBT_CONFIG__ && global.__CBT_CONFIG__.productId) || 'cbt';
+  }
+  function packMatchesProduct(p) {
+    const product = currentProductId();
+    const pid = p && (p.id || p.pack_id);
+    const pp = p && p.product_id;
+    if (product === 'quizit') {
+      return (pid && String(pid).startsWith('quizit-')) || pp === 'quizit';
+    }
+    if (pid && String(pid).startsWith('quizit-')) return false;
+    if (pp === 'quizit') return false;
+    return true;
+  }
   async function listManageablePacks() {
     const all = await listAllPacksAdmin();
-    if (isMainAdmin()) return (all || []).map(p => Object.assign({ _perm: { can_rename: true, can_edit_items: true, can_manage_participants: true, can_delete: true, is_owner: true } }, p));
+    const filtered = (all || []).filter(packMatchesProduct);
+    if (isMainAdmin()) return filtered.map(p => Object.assign({ _perm: { can_rename: true, can_edit_items: true, can_manage_participants: true, can_delete: true, is_owner: true, can_grant: true } }, p));
     const out = [];
-    for (const p of (all || [])) {
+    for (const p of filtered) {
       const perm = await getPackPermissions(p);
       if (perm.is_owner || perm.can_rename || perm.can_edit_items || perm.can_manage_participants || perm.can_delete) {
         out.push(Object.assign({ _perm: perm }, p));

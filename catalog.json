@@ -24,6 +24,18 @@
       "durationMinutes": 45,
       "practiceDurationMinutes": 30,
       "enabled": true
+    },
+    {
+      "id": "dkv11-ganjil",
+      "title": "DKV kls 11 Semester Ganjil",
+      "subject": "DKV",
+      "description": "DKV — Ujian Semester Ganjil Disain Komunikasi Visual",
+      "questionsFile": "packs/dkv11-ganjil/questions.json",
+      "essaysFile": "packs/dkv11-ganjil/essays.json",
+      "practiceFile": "packs/dkv11-ganjil/practice-questions.json",
+      "durationMinutes": 60,
+      "practiceDurationMinutes": 30,
+      "enabled": true
     }
   ]
 }

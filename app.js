@@ -1087,10 +1087,24 @@ function setupAntiCheatUi() {
 
 
 /* ========== ADMIN EXTENDED (Supabase) ========== */
+
+function isPackForThisProduct(packId, rp) {
+  const product = (config && config.productId) || 'cbt';
+  if (product === 'quizit') {
+    if (packId && String(packId).startsWith('quizit-')) return true;
+    if (rp && rp.product_id === 'quizit') return true;
+    return false;
+  }
+  if (packId && String(packId).startsWith('quizit-')) return false;
+  if (rp && rp.product_id === 'quizit') return false;
+  return true;
+}
+
 async function mergeRemotePacks() {
   if (!window.SHSupabase || !SHSupabase.sbEnabled()) return;
   const remote = await SHSupabase.listRemotePacks();
   (remote || []).forEach(rp => {
+    if (!isPackForThisProduct(rp.id, rp)) return;
     const pack = {
       id: rp.id,
       title: rp.title,
@@ -1110,6 +1124,7 @@ async function mergeRemotePacks() {
     if (idx >= 0) validPacks[idx] = { ...validPacks[idx], ...pack };
     else validPacks.push(pack);
   });
+  validPacks = (validPacks || []).filter(p => isPackForThisProduct(p.id, p._remoteData));
   renderPackList();
 }
 
