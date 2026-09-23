@@ -10,10 +10,12 @@
   "supabaseUrl": "https://edaujcxmncoslykyddwf.supabase.co",
   "supabaseAnonKey": "sb_publishable_Mn4bLzBAG1W26QNUI1I24Q_TM2WWyuS",
   "schoolName": "SMA PMA",
-  "version": "2.7.3",
+  "version": "2.8.2",
   "defaultDurationMinutes": 60,
   "defaultPracticeDurationMinutes": 30,
   "forceFullscreen": true,
   "cheatAlarmSound": true,
-  "productId": "cbt"
+  "productId": "cbt",
+  "essayManualMode": false,
+  "essayAiViaEdge": true
 }

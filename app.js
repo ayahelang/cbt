@@ -52,6 +52,47 @@ let examQuestions = [];
 let currentIndex = 0;
 let answers = {};
 let essayAnswers = {};
+let cheatLog = [];
+function examProgressKey() {
+  const pack = selectedPack && selectedPack.id ? selectedPack.id : 'unknown';
+  const nm = (studentName || '').trim().toLowerCase();
+  const cl = (studentClass || '').trim().toLowerCase();
+  return 'sh_exam_progress_v1:' + pack + ':' + cl + ':' + nm;
+}
+
+function persistExamProgress() {
+  if (isPracticeMode || examFinished || !selectedPack || !studentName) return;
+  try {
+    const payload = {
+      packId: selectedPack.id,
+      packTitle: selectedPack.title || '',
+      name: studentName,
+      class: studentClass,
+      answers: answers,
+      essayAnswers: essayAnswers,
+      currentIndex: currentIndex,
+      timeLeft: timeLeft,
+      tabSwitchCount: tabSwitchCount,
+      cheatLog: (typeof cheatLog !== 'undefined' ? cheatLog : []),
+      startedAt: window.__examStartedAt || null,
+      savedAt: new Date().toISOString()
+    };
+    localStorage.setItem(examProgressKey(), JSON.stringify(payload));
+  } catch (e) { console.warn('autosave', e); }
+}
+
+function loadExamProgress() {
+  try {
+    const raw = localStorage.getItem(examProgressKey());
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (_) { return null; }
+}
+
+function clearExamProgress() {
+  try { localStorage.removeItem(examProgressKey()); } catch (_) {}
+}
+
 let studentName = '';
 let studentClass = '';
 let timerInterval = null;
@@ -700,9 +741,55 @@ function confirmSubmit() {
   if (confirm(msg)) finishExam(false);
 }
 
+async function gradeEssaysWithAi(essaySummary, packEssays) {
+  if (config && config.essayManualMode) {
+    return (essaySummary || []).map(e => ({ ...e, score: null, maxScore: 20, feedback: 'Mode manual aktif' }));
+  }
+  const base = (config && config.supabaseUrl) || '';
+  const anon = (config && config.supabaseAnonKey) || '';
+  if (!base || !anon) {
+    return (essaySummary || []).map(e => ({ ...e, score: null, maxScore: 20, feedback: 'Database belum dikonfigurasi untuk AI' }));
+  }
+  const essays = (essaySummary || []).map(e => {
+    const meta = (packEssays || []).find(x => x && x.id === e.id) || {};
+    return {
+      id: e.id,
+      question: e.question || meta.question || '',
+      answer: e.answer || '',
+      answerKey: e.answerKey || meta.answerKey || meta.key || meta.rubric || ''
+    };
+  });
+  try {
+    const url = base.replace(/\/$/, '') + '/functions/v1/grade-essays';
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + anon,
+        'apikey': anon
+      },
+      body: JSON.stringify({ essays })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg = (data && data.error) || ('HTTP ' + res.status);
+      return essays.map(e => ({ ...e, score: null, maxScore: 20, feedback: String(msg) }));
+    }
+    const graded = (data && data.graded) || [];
+    if (!graded.length) {
+      return essays.map(e => ({ ...e, score: null, maxScore: 20, feedback: 'Respons AI kosong' }));
+    }
+    return graded;
+  } catch (err) {
+    return essays.map(e => ({ ...e, score: null, maxScore: 20, feedback: 'Gagal memanggil layanan AI: ' + (err.message || err) }));
+  }
+}
+
+
 function finishExam(auto = false) {
   if (examFinished) return;
   examFinished = true;
+  clearExamProgress();
   clearInterval(timerInterval);
   stopAntiCheat();
   stopFullscreenGuard();
@@ -1054,6 +1141,7 @@ function onVisibilityChange() {
   if (!anticheatActive || examFinished || isPracticeMode) return;
   if (document.hidden) {
     tabSwitchCount++;
+    try { cheatLog.push({ type:'tab_switch', at:new Date().toISOString(), questionIndex: currentIndex, questionNo: currentIndex+1 }); persistExamProgress(); } catch(_){}
     showAntiCheatWarning();
   }
 }
@@ -2445,6 +2533,7 @@ function onFullscreenChange() {
     }
     if (proctorSettings.cheatAlarmSound) playCheatAlarm();
     tabSwitchCount++;
+    try { cheatLog.push({ type:'tab_switch', at:new Date().toISOString(), questionIndex: currentIndex, questionNo: currentIndex+1 }); persistExamProgress(); } catch(_){}
   }
 }
 
@@ -2500,3 +2589,15 @@ function setupProctorUi() {
 
 
 init();
+
+async function regradeResultEssays(row, btn) {
+  const essays = row.essays || row.essay_answers || [];
+  if (!essays.length) throw new Error('Tidak ada jawaban essay tersimpan.');
+  const graded = await gradeEssaysWithAi(essays, essays);
+  const sum = graded.reduce((s, e) => s + (typeof e.score === 'number' ? e.score : 0), 0);
+  const max = graded.reduce((s, e) => s + (e.maxScore || 20), 0);
+  if (!row.id) throw new Error('ID hasil tidak ada');
+  await SHSupabase.updateResult(row.id, { essays: graded, essay_score: sum, essay_score_max: max });
+  if (btn) btn.textContent = 'Selesai · ' + sum + '/' + max;
+  if (typeof adminLoadData === 'function') adminLoadData();
+}

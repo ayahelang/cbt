@@ -208,6 +208,12 @@
     for (const r of (rows || [])) await deleteResult(r.id);
   }
 
+  async function updateResult(id, fields) {
+    if (!currentAdmin) throw new Error('Belum login admin');
+    await sbFetch('cbt_results?id=eq.' + encodeURIComponent(id), {
+      method: 'PATCH', body: JSON.stringify(fields)
+    });
+  }
   async function listResults() {
     if (!sbEnabled()) return [];
     return await sbFetch('cbt_results?select=*&order=created_at.desc&limit=2000');
@@ -1028,6 +1034,7 @@
     deleteResult,
     deleteResultsByStudent,
     listResults,
+    updateResult,
     uploadPack,
     listRemotePacks,
     listAllPacksAdmin,
