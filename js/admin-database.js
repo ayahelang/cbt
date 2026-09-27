@@ -263,7 +263,8 @@
       enabled: true,
       updated_at: new Date().toISOString(),
       updated_by: currentAdmin.username,
-      owner_username: owner
+      owner_username: owner,
+      product_id: currentProductId()
     };
     await sbFetch('cbt_packs?on_conflict=id', {
       method: 'POST',
@@ -291,6 +292,7 @@
       (admins || []).forEach(a => { adminMap[a.username] = a; });
     } catch (e) { console.warn(e); }
     return (packs || []).filter(p => {
+      if (!packMatchesProduct(p)) return false;
       const owner = p.owner_username || 'main';
       if (owner === 'main') return true;
       return isAdminEffectivelyActive(adminMap[owner]);
@@ -695,24 +697,52 @@
     return !!(acl && acl.length);
   }
 
+  function filterClassesByProduct(rows) {
+    const product = currentProductId();
+    return (rows || []).filter(c => {
+      const cp = (c && c.product_id) ? String(c.product_id) : '';
+      if (product === 'quizit') {
+        return cp === 'quizit';
+      }
+      // CBT: hanya kelas milik CBT (atau legacy tanpa product_id)
+      if (cp === 'quizit') return false;
+      return cp === 'cbt' || cp === '';
+    });
+  }
+
   async function listClasses() {
-    return await sbFetch('cbt_classes?active=eq.true&select=*&order=institution.asc,name.asc');
+    const rows = await sbFetch('cbt_classes?active=eq.true&select=*&order=institution.asc,name.asc');
+    return filterClassesByProduct(rows);
   }
 
   async function listAllClassesAdmin() {
-    return await sbFetch('cbt_classes?select=*&order=institution.asc,name.asc');
+    const rows = await sbFetch('cbt_classes?select=*&order=institution.asc,name.asc');
+    return filterClassesByProduct(rows);
   }
 
   async function createClass(name, institution) {
     if (!(await canManageMasterRoster())) throw new Error('Tidak punya hak kelola data peserta');
     const n = String(name || '').trim();
     if (!n) throw new Error('Nama kelas wajib');
+    const inst = String(institution || '').trim();
+    const product = currentProductId();
+    // cegah dobel dalam produk yang sama
+    const existing = await sbFetch(
+      'cbt_classes?name=eq.' + encodeURIComponent(n) +
+      '&institution=eq.' + encodeURIComponent(inst) +
+      '&product_id=eq.' + encodeURIComponent(product) +
+      '&select=id&limit=1'
+    );
+    if (existing && existing[0]) {
+      throw new Error('Kelas "' + n + '" di instansi "' + inst + '" sudah ada di produk ini.');
+    }
     const rows = await sbFetch('cbt_classes', {
       method: 'POST',
       body: JSON.stringify({
         name: n,
-        institution: String(institution || '').trim(),
+        institution: inst,
         created_by: currentAdmin.username || 'main',
+        product_id: product,
         active: true
       })
     });
@@ -939,9 +969,12 @@
       const names = legacyMap[className];
       if (!Array.isArray(names)) continue;
       // cek kelas sudah ada (sama nama + instansi)
+      const product = currentProductId();
       const existing = await sbFetch(
         'cbt_classes?name=eq.' + encodeURIComponent(String(className)) +
-        '&institution=eq.' + encodeURIComponent(institution) + '&select=id&limit=1'
+        '&institution=eq.' + encodeURIComponent(institution) +
+        '&product_id=eq.' + encodeURIComponent(product) +
+        '&select=id&limit=1'
       );
       let classId;
       if (existing && existing[0]) {
@@ -1086,6 +1119,8 @@
     isAdminEffectivelyActive,
     canManageMasterRoster,
     listClasses,
+    filterClassesByProduct,
+    currentProductId,
     listAllClassesAdmin,
     createClass,
     updateClass,
