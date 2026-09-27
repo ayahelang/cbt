@@ -173,8 +173,8 @@ Aplikasi akan **otomatis memvalidasi** file. Jika path salah atau JSON rusak, pa
 
 ## Password (config.json)
 - Password per kelas: `passwords`
-- Latihan: `practicePassword` (default `latihanSH`)
-- Admin: `adminPassword` (default `adminSH2026`)
+- Latihan: `practicePassword` (default `latihanxx`)
+- Admin: `adminPassword` (default `adminxx9999`)
 
 ## Apps Script
 Gunakan script yang sama dengan v1.2 (doPost + check + list + delete).  
