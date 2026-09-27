@@ -287,6 +287,20 @@ function setupEventListeners() {
   document.getElementById('btn-jump-unanswered').addEventListener('click', jumpToUnanswered);
   document.getElementById('btn-jump-last').addEventListener('click', jumpToLast);
   document.getElementById('btn-back-home').addEventListener('click', backToLogin);
+
+  document.getElementById('close-essay')?.addEventListener('click', () =>
+    document.getElementById('essay-modal').classList.remove('active'));
+  document.getElementById('btn-filter-select-all')?.addEventListener('click', () => {
+    const rows = window._adminRows || [];
+    filterCheckedStudents = new Set(rows.map(r => ftKey(r._school || '(tanpa sekolah)', r._className || '(tanpa kelas)', r.name)));
+    renderFilterTree();
+    applyAdminFilters();
+  });
+  document.getElementById('btn-filter-clear')?.addEventListener('click', () => {
+    filterCheckedStudents = new Set();
+    renderFilterTree();
+    applyAdminFilters();
+  });
 }
 
 function showPracticeLogin() {
@@ -962,41 +976,329 @@ function populateAdminPackFilter() {
   sel.value = cur || '';
 }
 
+/* ========== Filter Sekolah / Kelas / Siswa (checkbox tree) ==========
+ * filterCheckedStudents menyimpan kunci "sekolah|||kelas|||nama" siswa yang
+ * dicentang. Ini satu-satunya sumber kebenaran untuk penyaringan; status
+ * centang di level Sekolah/Kelas hanya representasi visual (dihitung ulang
+ * tiap render dari isi filterCheckedStudents).
+ */
+let filterCheckedStudents = new Set();
+let filterExpandedNodes = new Set();
+
+function ftKey(school, cls, name) {
+  return school + '|||' + cls + '|||' + name;
+}
+
+function buildFilterGroups(rows) {
+  const groups = new Map(); // school -> Map(class -> Set(name))
+  rows.forEach(r => {
+    const school = r._school || '(tanpa sekolah)';
+    const cls = r._className || '(tanpa kelas)';
+    const name = r.name || '(tanpa nama)';
+    if (!groups.has(school)) groups.set(school, new Map());
+    const classMap = groups.get(school);
+    if (!classMap.has(cls)) classMap.set(cls, new Set());
+    classMap.get(cls).add(name);
+  });
+  return groups;
+}
+
+function renderFilterTree() {
+  const box = document.getElementById('admin-filter-tree');
+  if (!box) return;
+  const rows = window._adminRows || [];
+  if (!rows.length) {
+    box.innerHTML = '<p class="hint" style="padding:10px">Belum ada data. Klik "Tampilkan Hasil" dulu.</p>';
+    return;
+  }
+  const groups = buildFilterGroups(rows);
+  box.innerHTML = '';
+
+  const schools = [...groups.keys()].sort((a, b) => a.localeCompare(b));
+  schools.forEach(school => {
+    const classMap = groups.get(school);
+    const classNames = [...classMap.keys()].sort((a, b) => a.localeCompare(b));
+
+    // Hitung status centang sekolah dari semua siswa di bawahnya
+    let schoolTotal = 0, schoolChecked = 0;
+    classMap.forEach((names, cls) => names.forEach(n => {
+      schoolTotal++;
+      if (filterCheckedStudents.has(ftKey(school, cls, n))) schoolChecked++;
+    }));
+
+    const schoolWrap = document.createElement('div');
+    schoolWrap.className = 'filter-tree-node';
+    const schoolHead = document.createElement('div');
+    schoolHead.className = 'filter-tree-head';
+
+    const schoolCb = document.createElement('input');
+    schoolCb.type = 'checkbox';
+
+    const schoolLabel = document.createElement('span');
+    schoolLabel.className = 'ft-label';
+    schoolLabel.innerHTML = '🏫 <strong>' + escapeHtml(school) + '</strong> <span class="ft-count">(' + schoolTotal + ' siswa)</span>';
+
+    const schoolToggle = document.createElement('button');
+    schoolToggle.type = 'button';
+    schoolToggle.className = 'filter-tree-toggle';
+    schoolToggle.textContent = '▶';
+
+    schoolHead.appendChild(schoolCb);
+    schoolHead.appendChild(schoolLabel);
+    schoolHead.appendChild(schoolToggle);
+
+    const schoolBody = document.createElement('div');
+    schoolBody.className = 'filter-tree-body';
+    schoolBody.style.paddingLeft = '20px';
+    const schoolNodeKey = 'school:' + school;
+    const schoolExpanded = filterExpandedNodes.has(schoolNodeKey);
+    schoolBody.style.display = schoolExpanded ? 'block' : 'none';
+    schoolToggle.textContent = schoolExpanded ? '▼' : '▶';
+
+    classNames.forEach(cls => {
+      const names = [...classMap.get(cls)].sort((a, b) => a.localeCompare(b));
+      const classChecked = names.filter(n => filterCheckedStudents.has(ftKey(school, cls, n))).length;
+
+      const classWrap = document.createElement('div');
+      classWrap.className = 'filter-tree-node';
+      const classHead = document.createElement('div');
+      classHead.className = 'filter-tree-head';
+
+      const classCb = document.createElement('input');
+      classCb.type = 'checkbox';
+      classCb.checked = classChecked === names.length;
+      classCb.indeterminate = classChecked > 0 && classChecked < names.length;
+
+      const classLabel = document.createElement('span');
+      classLabel.className = 'ft-label';
+      classLabel.innerHTML = '🏷️ ' + escapeHtml(cls) + ' <span class="ft-count">(' + names.length + ' siswa)</span>';
+
+      const classToggle = document.createElement('button');
+      classToggle.type = 'button';
+      classToggle.className = 'filter-tree-toggle';
+      classToggle.textContent = '▶';
+
+      classHead.appendChild(classCb);
+      classHead.appendChild(classLabel);
+      classHead.appendChild(classToggle);
+
+      const classBody = document.createElement('div');
+      classBody.className = 'filter-tree-body';
+      classBody.style.paddingLeft = '20px';
+      const classNodeKey = 'class:' + school + '|||' + cls;
+      const classExpanded = filterExpandedNodes.has(classNodeKey);
+      classBody.style.display = classExpanded ? 'block' : 'none';
+      classToggle.textContent = classExpanded ? '▼' : '▶';
+
+      names.forEach(name => {
+        const key = ftKey(school, cls, name);
+        const row = document.createElement('label');
+        row.className = 'filter-tree-head';
+        row.style.cursor = 'pointer';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = filterCheckedStudents.has(key);
+        cb.addEventListener('change', () => {
+          if (cb.checked) filterCheckedStudents.add(key); else filterCheckedStudents.delete(key);
+          renderFilterTree();
+          applyAdminFilters();
+        });
+        row.appendChild(cb);
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'ft-label';
+        nameSpan.textContent = '👤 ' + name;
+        row.appendChild(nameSpan);
+        classBody.appendChild(row);
+      });
+
+      classCb.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const shouldCheck = !(classChecked === names.length);
+        names.forEach(n => {
+          const key = ftKey(school, cls, n);
+          if (shouldCheck) filterCheckedStudents.add(key); else filterCheckedStudents.delete(key);
+        });
+        renderFilterTree();
+        applyAdminFilters();
+      });
+      classToggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (filterExpandedNodes.has(classNodeKey)) filterExpandedNodes.delete(classNodeKey);
+        else filterExpandedNodes.add(classNodeKey);
+        classBody.style.display = filterExpandedNodes.has(classNodeKey) ? 'block' : 'none';
+        classToggle.textContent = filterExpandedNodes.has(classNodeKey) ? '▼' : '▶';
+      });
+      classLabel.addEventListener('click', () => classToggle.click());
+
+      classWrap.appendChild(classHead);
+      classWrap.appendChild(classBody);
+      schoolBody.appendChild(classWrap);
+    });
+
+    schoolCb.checked = schoolChecked === schoolTotal && schoolTotal > 0;
+    schoolCb.indeterminate = schoolChecked > 0 && schoolChecked < schoolTotal;
+
+    schoolCb.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const shouldCheck = !(schoolChecked === schoolTotal);
+      classMap.forEach((names, cls) => names.forEach(n => {
+        const key = ftKey(school, cls, n);
+        if (shouldCheck) filterCheckedStudents.add(key); else filterCheckedStudents.delete(key);
+      }));
+      renderFilterTree();
+      applyAdminFilters();
+    });
+    schoolToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (filterExpandedNodes.has(schoolNodeKey)) filterExpandedNodes.delete(schoolNodeKey);
+      else filterExpandedNodes.add(schoolNodeKey);
+      schoolBody.style.display = filterExpandedNodes.has(schoolNodeKey) ? 'block' : 'none';
+      schoolToggle.textContent = filterExpandedNodes.has(schoolNodeKey) ? '▼' : '▶';
+    });
+    schoolLabel.addEventListener('click', () => schoolToggle.click());
+
+    schoolWrap.appendChild(schoolHead);
+    schoolWrap.appendChild(schoolBody);
+    box.appendChild(schoolWrap);
+  });
+}
+
+function applyAdminFilters() {
+  const filtered = getFilteredAdminRows();
+  const status = document.getElementById('admin-status');
+  if (status && window._adminRows) {
+    status.textContent = 'Menampilkan ' + filtered.length + ' dari ' + window._adminRows.length + ' data.';
+  }
+  renderAdminList(filtered);
+}
+
 function getFilteredAdminRows() {
   const rows = window._adminRows || [];
   const filter = (document.getElementById('admin-pack-filter')?.value || '').trim();
-  if (!filter) return rows;
-  return rows.filter(r => {
-    const id = String(r.packId || '').trim();
-    const title = String(r.packTitle || '').trim().toLowerCase();
-    if (id === filter) return true;
-    const pack = (validPacks || []).find(p => p.id === filter);
-    if (pack && title && title === String(pack.title || '').toLowerCase()) return true;
-    return false;
-  });
+  let result = rows;
+  if (filter) {
+    result = result.filter(r => {
+      const id = String(r.packId || '').trim();
+      const title = String(r.packTitle || '').trim().toLowerCase();
+      if (id === filter) return true;
+      const pack = (validPacks || []).find(p => p.id === filter);
+      if (pack && title && title === String(pack.title || '').toLowerCase()) return true;
+      return false;
+    });
+  }
+  if (filterCheckedStudents.size > 0) {
+    result = result.filter(r => filterCheckedStudents.has(ftKey(r._school || '(tanpa sekolah)', r._className || '(tanpa kelas)', r.name)));
+  }
+  return result;
 }
 
 function renderAdminList(rows) {
   const list = document.getElementById('admin-list');
   list.innerHTML = '';
+  if (!rows.length) {
+    list.innerHTML = '<p class="hint" style="padding:12px">Tidak ada data untuk filter ini.</p>';
+    return;
+  }
   rows.forEach(row => {
     const div = document.createElement('div');
     div.className = 'admin-row';
     const packLabel = row.packTitle || row.packId || '—';
+    const schoolLabel = row._school || '-';
+    const classLabel = row._className || row.class || '-';
+    const hasEssay = Array.isArray(row.essays) && row.essays.length > 0;
+    let essayBtnLabel = 'Lihat Essay';
+    if (hasEssay) {
+      essayBtnLabel = (typeof row.essayScore === 'number')
+        ? `Essay: ${row.essayScore}/${row.essayScoreMax ?? ''}`
+        : `Lihat Essay (${row.essays.length})`;
+    }
     div.innerHTML = `
-      <div class="info"><strong>${escapeHtml(row.name)}</strong> • Kelas ${escapeHtml(row.class)}
-      <br><small>${escapeHtml(packLabel)} • ${escapeHtml(row.timestamp || '')}</small></div>
+      <div class="info"><strong>${escapeHtml(row.name)}</strong>
+      <br><small>${escapeHtml(schoolLabel)} • Kelas ${escapeHtml(classLabel)}</small>
+      <br><small>${escapeHtml(packLabel)}</small></div>
       <div class="score">${row.score}/${row.total} (${row.percent}%)</div>
-      <button type="button" class="btn-del">Hapus</button>`;
+      <div class="actions">
+        ${hasEssay ? `<button type="button" class="btn-essay">${escapeHtml(essayBtnLabel)}</button>` : ''}
+        <button type="button" class="btn-del">Hapus</button>
+      </div>`;
     div.querySelector('.btn-del').addEventListener('click', () => adminDeleteRow(row));
+    const essayBtn = div.querySelector('.btn-essay');
+    if (essayBtn) essayBtn.addEventListener('click', () => openEssayModal(row));
     list.appendChild(div);
   });
+}
+
+/* ========== Modal jawaban essay ========== */
+function openEssayModal(row) {
+  const body = document.getElementById('essay-body');
+  const essays = row.essays || [];
+  const graded = essays.some(e => typeof e.score === 'number');
+  body.innerHTML = `
+    <p class="hint" style="margin-bottom:10px"><strong>${escapeHtml(row.name)}</strong> • ${escapeHtml(row._school || '-')} • Kelas ${escapeHtml(row._className || row.class || '-')} • ${escapeHtml(row.packTitle || row.packId || '')}</p>
+    <div id="essay-items"></div>
+    <button type="button" id="btn-grade-essay" class="btn btn-primary" style="width:100%;margin-top:10px">
+      ${graded ? 'Nilai Ulang dengan AI' : 'Nilai dengan AI'}
+    </button>
+    <div id="essay-grade-status" class="admin-status"></div>
+  `;
+  renderEssayItems(essays);
+  document.getElementById('btn-grade-essay').addEventListener('click', () => gradeRowEssays(row));
+  document.getElementById('essay-modal').classList.add('active');
+}
+
+function renderEssayItems(essays) {
+  const wrap = document.getElementById('essay-items');
+  if (!wrap) return;
+  wrap.innerHTML = (essays || []).map((e, i) => `
+    <div class="essay-item">
+      <div class="essay-q">${i + 1}. ${escapeHtml(e.question || '')}</div>
+      <div class="essay-a">${escapeHtml(e.answer || '(kosong)')}</div>
+      ${typeof e.score === 'number'
+        ? `<div class="essay-score">Skor: ${e.score} / ${e.maxScore ?? 20}</div>`
+        : `<div class="essay-score" style="color:var(--text-muted)">Belum dinilai</div>`}
+      ${e.feedback ? `<div class="essay-feedback">${escapeHtml(e.feedback)}</div>` : ''}
+    </div>
+  `).join('') || '<p class="hint">Tidak ada jawaban essay.</p>';
+}
+
+async function gradeRowEssays(row) {
+  const btn = document.getElementById('btn-grade-essay');
+  const st = document.getElementById('essay-grade-status');
+  if (!row.essays || !row.essays.length) { st.textContent = 'Tidak ada jawaban essay.'; return; }
+  if (!row._id) { st.textContent = 'ID hasil tidak ditemukan.'; return; }
+  if (!window.SHSupabase || typeof SHSupabase.updateResult !== 'function') {
+    st.textContent = 'Fitur simpan nilai belum tersedia (Supabase belum aktif).';
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Menilai...';
+  st.textContent = '';
+  try {
+    const graded = await gradeEssaysWithAi(row.essays, row.essays);
+    const sum = graded.reduce((s, e) => s + (typeof e.score === 'number' ? e.score : 0), 0);
+    const max = graded.reduce((s, e) => s + (e.maxScore || 20), 0);
+    await SHSupabase.updateResult(row._id, { essays: graded, essay_score: sum, essay_score_max: max });
+    row.essays = graded;
+    row.essayScore = sum;
+    row.essayScoreMax = max;
+    renderEssayItems(graded);
+    st.textContent = `Selesai dinilai: ${sum}/${max}`;
+    btn.textContent = 'Nilai Ulang dengan AI';
+    // refresh tampilan list di belakang modal (tanpa reload jaringan)
+    renderAdminList(getFilteredAdminRows());
+  } catch (e) {
+    st.textContent = 'Gagal menilai: ' + (e.message || e);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 function logoutAdmin() {
   adminScreen.classList.remove('active');
   loginScreen.classList.add('active');
   hideSpecialLogins();
+  filterCheckedStudents = new Set();
+  filterExpandedNodes = new Set();
 }
 
 async function adminLoadData() {
@@ -1015,6 +1317,7 @@ async function adminLoadData() {
       window._adminRows = [];
       return;
     }
+    await resolveRowsSchoolClass(data.rows);
     window._adminRows = data.rows;
     // tambah opsi mapel dari data sheet
     const sel = document.getElementById('admin-pack-filter');
@@ -1028,6 +1331,7 @@ async function adminLoadData() {
         sel.appendChild(opt);
       }
     });
+    renderFilterTree();
     const filtered = getFilteredAdminRows();
     status.textContent = `Menampilkan ${filtered.length} dari ${data.rows.length} data.`;
     renderAdminList(filtered);
@@ -1203,10 +1507,7 @@ function setupAntiCheatUi() {
   if (packFilter) {
     packFilter.addEventListener('change', () => {
       if (!window._adminRows) return;
-      const filtered = getFilteredAdminRows();
-      document.getElementById('admin-status').textContent =
-        `Menampilkan ${filtered.length} dari ${window._adminRows.length} data.`;
-      renderAdminList(filtered);
+      applyAdminFilters();
     });
   }
 }
@@ -1351,6 +1652,10 @@ function openAdminPanel(admin) {
   adminScreen.classList.add('active');
   document.getElementById('admin-list').innerHTML = '';
   document.getElementById('admin-status').textContent = 'Klik "Muat Data".';
+  filterCheckedStudents = new Set();
+  filterExpandedNodes = new Set();
+  const tree = document.getElementById('admin-filter-tree');
+  if (tree) tree.innerHTML = '<p class="hint" style="padding:10px">Muat data dulu untuk melihat daftar sekolah/kelas/siswa.</p>';
   populateAdminPackFilter();
 }
 
@@ -1395,6 +1700,10 @@ adminLoadData = async function() {
           timeUsedSeconds: r.time_used_seconds,
           autoSubmit: r.auto_submit ? 'YA' : 'TIDAK',
           tabSwitchCount: r.tab_switch_count || 0,
+          essays: r.essays || [],
+          essayScore: (typeof r.essay_score === 'number') ? r.essay_score : null,
+          essayScoreMax: (typeof r.essay_score_max === 'number') ? r.essay_score_max : null,
+          institution: r.institution || '',
           _source: 'supabase',
           _id: r.id
         });
@@ -1442,6 +1751,8 @@ adminLoadData = async function() {
     return true;
   });
 
+  await resolveRowsSchoolClass(rows);
+
   window._adminRows = rows;
   const sel = document.getElementById('admin-pack-filter');
   if (sel) {
@@ -1457,11 +1768,44 @@ adminLoadData = async function() {
       }
     });
   }
+  renderFilterTree();
   const filtered = getFilteredAdminRows();
   const srcNote = fromSb ? ('Supabase ' + fromSb) : (fromSheet ? ('Sheet ' + fromSheet) : '0');
   status.textContent = 'Menampilkan ' + filtered.length + ' dari ' + rows.length + ' data (' + srcNote + ').';
   renderAdminList(filtered);
 };
+
+/* ========== Resolusi Sekolah & Nama Kelas asli untuk tiap baris hasil ==========
+ * row.class yang tersimpan bisa berupa class_id (uuid) dari fitur "peserta paket",
+ * atau kode lama (mis. "51"/"52") dari config.passwords. Di sini kita cocokkan
+ * ke data master kelas (cbt_classes) supaya panel admin menampilkan nama sekolah
+ * & nama kelas yang sebenarnya, bukan kode mentah.
+ */
+async function resolveRowsSchoolClass(rows) {
+  let classes = [];
+  try {
+    if (window.SHSupabase && SHSupabase.sbEnabled() && typeof SHSupabase.listAllClassesAdmin === 'function') {
+      classes = await SHSupabase.listAllClassesAdmin();
+    }
+  } catch (e) { console.warn('Gagal memuat data kelas master', e); }
+  const byId = {};
+  const byName = {};
+  (classes || []).forEach(c => {
+    byId[String(c.id)] = c;
+    if (c.name && !byName[String(c.name).toLowerCase()]) byName[String(c.name).toLowerCase()] = c;
+  });
+  rows.forEach(r => {
+    const raw = String(r.class || '').trim();
+    const match = byId[raw] || byName[raw.toLowerCase()];
+    if (match) {
+      r._className = match.name || raw || '(tanpa kelas)';
+      r._school = (r.institution || match.institution || '').trim() || '(tanpa sekolah)';
+    } else {
+      r._className = raw || '(tanpa kelas)';
+      r._school = (r.institution || '').trim() || '(tanpa sekolah)';
+    }
+  });
+}
 
 function adminDownloadXlsx() {
   const rows = getFilteredAdminRows();
