@@ -1176,3 +1176,23 @@ input[type="checkbox"]:checked { accent-color: #22d3ee; }
 .det-muted { color: #94a3b8; }
 .det-empty { color: #94a3b8; margin-left: 4px; }
 .btn-ai-grade { width: auto !important; white-space: nowrap; }
+
+.det-score-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.essay-score-input {
+  width: 72px !important;
+  min-width: 72px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(148,163,184,0.35);
+  background: rgba(15,23,42,0.6);
+  color: #e2e8f0;
+  font-size: 0.9rem;
+}
+.det-max { color: #94a3b8; font-size: 0.85rem; }
+.hasil-bulk-actions { margin-top: 4px; }

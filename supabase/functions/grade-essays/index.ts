@@ -1,9 +1,3 @@
-// Supabase Edge Function: grade-essays
-// Secret: GEMINI_API_KEY (set di Dashboard → Edge Functions → Secrets)
-// Invoke: POST { supabaseUrl }/functions/v1/grade-essays
-// Body: { essays: [ { id, question, answer, answerKey? } ] }
-// Header: Authorization: Bearer <anon or user jwt>
-
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const cors = {
@@ -11,6 +5,13 @@ const cors = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
+
+const MODELS = [
+  "gemini-2.5-flash",
+  "gemini-2.0-flash-001",
+  "gemini-1.5-flash",
+  "gemini-flash-latest",
+];
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -64,34 +65,47 @@ Deno.serve(async (req) => {
 
     let score: number | null = null;
     let feedback = "";
+    let lastErr = "";
     try {
-      const url =
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" +
-        encodeURIComponent(key);
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-      });
-      const data = await res.json();
-      const text =
-        (((data || {}).candidates || [])[0] || {}).content?.parts?.[0]?.text ||
-        "";
-      feedback = String(text).slice(0, 500);
-      const m = String(text).match(/\{[\s\S]*\}/);
-      if (m) {
-        try {
-          const j = JSON.parse(m[0]);
-          const s = Number(j.score);
-          if (!isNaN(s)) score = Math.max(0, Math.min(20, s));
-          if (j.feedback) feedback = String(j.feedback).slice(0, 500);
-        } catch (_) {}
+      for (const model of MODELS) {
+        const url =
+          "https://generativelanguage.googleapis.com/v1beta/models/" +
+          model +
+          ":generateContent?key=" +
+          encodeURIComponent(key);
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          lastErr = JSON.stringify(data).slice(0, 240);
+          continue;
+        }
+        const text =
+          (((data || {}).candidates || [])[0] || {}).content?.parts?.[0]?.text ||
+          "";
+        feedback = String(text).slice(0, 500);
+        const m = String(text).match(/\{[\s\S]*\}/);
+        if (m) {
+          try {
+            const j = JSON.parse(m[0]);
+            const s = Number(j.score);
+            if (!isNaN(s)) score = Math.max(0, Math.min(20, s));
+            if (j.feedback) feedback = String(j.feedback).slice(0, 500);
+          } catch (_) {}
+        }
+        lastErr = "";
+        break;
       }
-      if (!res.ok) {
-        feedback = "Gemini error: " + JSON.stringify(data).slice(0, 200);
+      if (lastErr && score == null) {
+        feedback = "Gemini error: " + lastErr;
       }
     } catch (err) {
-      feedback = "Gagal: " + (err && (err as Error).message ? (err as Error).message : String(err));
+      feedback =
+        "Gagal: " +
+        (err && (err as Error).message ? (err as Error).message : String(err));
     }
 
     graded.push({

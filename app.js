@@ -368,6 +368,7 @@ function setupEventListeners() {
     document.querySelectorAll('#hasil-filter-tree input[type=checkbox]').forEach(c => { c.checked = false; });
   });
   onEl('btn-admin-download', 'click', adminDownloadCSV);
+  onEl('btn-bulk-ai-essay', 'click', bulkRegradeVisibleEssays);
   onEl('btn-admin-download-xlsx', 'click', typeof adminDownloadXlsx === 'function' ? adminDownloadXlsx : () => {});
   onEl('btn-jump-unanswered', 'click', jumpToUnanswered);
   onEl('btn-jump-last', 'click', jumpToLast);
@@ -1872,14 +1873,73 @@ function renderAdminListClean(rows) {
           esBox.innerHTML = '<div class="det-section-title">Detail Essay</div>' + esList.map((e, i) => {
             const sc = (typeof e.score === 'number') ? (e.score + '/' + (e.maxScore || 20)) : 'belum dinilai';
             const scCls = (typeof e.score === 'number') ? 'det-ok' : 'det-muted';
-            return '<details class="det-item"><summary><span class="det-no">Essay ' + (i+1) + '</span> · <span class="' + scCls + '">' + sc + '</span></summary>' +
+            const fb = (e.feedback && !String(e.feedback).startsWith('Gemini error')) ? e.feedback : (e.feedback || '');
+            const fbErr = e.feedback && String(e.feedback).startsWith('Gemini error');
+            return '<details class="det-item" open><summary><span class="det-no">Essay ' + (i+1) + '</span> · <span class="' + scCls + ' essay-sum-score" data-idx="' + i + '">' + sc + '</span></summary>' +
               '<div class="det-body">' +
               formatDetailBlock('Soal:', e.question) +
               formatDetailBlock('Jawaban:', e.answer) +
-              (e.feedback ? formatDetailBlock('Catatan AI:', e.feedback) : '') +
-              (typeof e.score === 'number' ? formatDetailBlock('Nilai:', e.score + ' / ' + (e.maxScore || 20)) : formatDetailBlock('Nilai:', 'Belum dinilai — klik tombol AI Essay')) +
-              '</div></details>';
+              (fb ? ('<div class="det-line"><span class="det-label">' + (fbErr ? 'Status AI:' : 'Catatan AI:') + '</span> <span class="det-text' + (fbErr ? ' det-bad' : '') + '">' + escapeHtml(fb) + '</span></div>') : '') +
+              '<div class="det-score-row">' +
+              '<span class="det-label">Nilai:</span>' +
+              '<input type="number" class="essay-score-input" data-idx="' + i + '" min="0" max="' + (e.maxScore || 20) + '" step="0.5" value="' + (typeof e.score === 'number' ? e.score : '') + '" placeholder="0-' + (e.maxScore || 20) + '" />' +
+              '<span class="det-max">/ ' + (e.maxScore || 20) + '</span>' +
+              '<button type="button" class="btn btn-primary btn-sm btn-save-essay" data-idx="' + i + '">Simpan</button>' +
+              '</div></div></details>';
           }).join('');
+          esBox.querySelectorAll('.btn-save-essay').forEach(btn => {
+            btn.addEventListener('click', async () => {
+              const idx = parseInt(btn.getAttribute('data-idx'), 10);
+              const inp = esBox.querySelector('.essay-score-input[data-idx="' + idx + '"]');
+              const val = inp ? parseFloat(inp.value) : NaN;
+              if (isNaN(val)) { alert('Isi nilai angka.'); return; }
+              const maxS = (esList[idx] && esList[idx].maxScore) || 20;
+              const score = Math.max(0, Math.min(maxS, val));
+              try {
+                btn.disabled = true;
+                btn.textContent = '...';
+                if (!row.essays) row.essays = esList.slice();
+                row.essays[idx] = Object.assign({}, row.essays[idx] || esList[idx], {
+                  score,
+                  maxScore: maxS,
+                  feedback: (row.essays[idx] && row.essays[idx].feedback) || 'Dinilai manual oleh admin'
+                });
+                const sum = row.essays.reduce((s, e) => s + (typeof e.score === 'number' ? e.score : 0), 0);
+                const max = row.essays.reduce((s, e) => s + (e.maxScore || 20), 0);
+                row.essayScore = sum;
+                row.essayScoreMax = max;
+                const rid = row._id || row.id;
+                if (rid && window.SHSupabase && SHSupabase.updateResult) {
+                  await SHSupabase.updateResult(rid, {
+                    essays: row.essays,
+                    essay_score: sum,
+                    essay_score_max: max
+                  });
+                }
+                const sumEl = esBox.querySelector('.essay-sum-score[data-idx="' + idx + '"]');
+                if (sumEl) {
+                  sumEl.textContent = score + '/' + maxS;
+                  sumEl.className = 'det-ok essay-sum-score';
+                  sumEl.setAttribute('data-idx', String(idx));
+                }
+                // update line score on card
+                const scoreEl = div.querySelector('.result-line-score');
+                if (scoreEl) {
+                  const comb = calcCombined100(row);
+                  const esBit = ' · E ' + sum + '/' + max;
+                  const combBit = comb != null ? ' · Σ ' + comb : ' · Σ —';
+                  scoreEl.textContent = 'PG ' + (row.score != null ? row.score : '—') + '/' + (row.total != null ? row.total : '—') +
+                    (row.percent != null ? ' (' + row.percent + '%)' : '') + esBit + combBit;
+                }
+                btn.textContent = 'Tersimpan';
+                setTimeout(() => { btn.textContent = 'Simpan'; btn.disabled = false; }, 1200);
+              } catch (err) {
+                alert(err.message || err);
+                btn.textContent = 'Simpan';
+                btn.disabled = false;
+              }
+            });
+          });
         }
       } catch (err) {
         pgBox.innerHTML = '<small>Gagal muat detail: ' + escapeHtml(err.message || String(err)) + '</small>';
@@ -3457,6 +3517,35 @@ function setupProctorUi() {
 
 
 init();
+
+
+async function bulkRegradeVisibleEssays() {
+  const rows = getFilteredAdminRows();
+  const targets = (rows || []).filter(r => r.essays && r.essays.length);
+  if (!targets.length) {
+    alert('Tidak ada hasil dengan essay di list ini. Klik Tampilkan Hasil dulu.');
+    return;
+  }
+  if (!confirm('Nilai essay dengan AI untuk ' + targets.length + ' siswa di list? Proses bisa memakan waktu.')) return;
+  const st = document.getElementById('admin-status');
+  const btn = document.getElementById('btn-bulk-ai-essay');
+  if (btn) { btn.disabled = true; }
+  let ok = 0, fail = 0;
+  for (let i = 0; i < targets.length; i++) {
+    const row = targets[i];
+    if (st) st.textContent = 'AI Essay ' + (i + 1) + '/' + targets.length + ' · ' + (row.name || '');
+    try {
+      await regradeResultEssays({ ...row, id: row._id || row.id, essays: row.essays }, null);
+      ok++;
+    } catch (e) {
+      console.warn(row.name, e);
+      fail++;
+    }
+  }
+  if (btn) btn.disabled = false;
+  if (st) st.textContent = 'Selesai AI Essay massal: berhasil ' + ok + ', gagal ' + fail + '.';
+  if (typeof adminLoadData === 'function') await adminLoadData();
+}
 
 async function regradeResultEssays(row, btn) {
   const essays = row.essays || row.essay_answers || [];
