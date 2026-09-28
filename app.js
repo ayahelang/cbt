@@ -121,29 +121,63 @@ const essayCard = document.getElementById('essay-card');
 const essayTextarea = document.getElementById('essay-answer');
 
 async function init() {
+  const packBox = document.getElementById('pack-list');
   try {
-    const [cfgRes, stuRes, catRes] = await Promise.all([
-      fetch('config.json'),
-      fetch('students.json'),
-      fetch('catalog.json')
-    ]);
+    // config wajib
+    const cfgRes = await fetch('config.json', { cache: 'no-store' });
+    if (!cfgRes.ok) throw new Error('config.json HTTP ' + cfgRes.status);
     config = await cfgRes.json();
+    window.config = config;
     window.__CBT_CONFIG__ = config;
-    students = await stuRes.json();
-    catalog = await catRes.json();
-    validPacks = await validateCatalog(catalog.packs || []);
+    if (window.SHSupabase && typeof SHSupabase.refreshConfig === 'function') {
+      try { SHSupabase.refreshConfig(config); } catch (_) {}
+    }
+
+    // students.json opsional (hanya seed/impor)
+    students = {};
+    try {
+      const stuRes = await fetch('students.json', { cache: 'no-store' });
+      if (stuRes.ok) students = await stuRes.json();
+    } catch (e) { console.warn('students.json opsional:', e); }
+
+    // catalog.json = seed lokal; jika gagal, tetap lanjut dari database
+    catalog = { packs: [] };
+    validPacks = [];
+    try {
+      const catRes = await fetch('catalog.json', { cache: 'no-store' });
+      if (catRes.ok) {
+        catalog = await catRes.json();
+        validPacks = await validateCatalog(catalog.packs || []);
+      } else {
+        console.warn('catalog.json HTTP', catRes.status);
+      }
+    } catch (e) {
+      console.warn('catalog.json gagal, pakai database saja:', e);
+    }
+
     renderPackList();
     setupEventListeners();
     setupAntiCheatUi();
     setupAdminExtendedUi();
     loadProctorSettings().catch(() => {});
+
     if (window.SHSupabase && SHSupabase.sbEnabled()) {
-      mergeRemotePacks().catch(err => console.warn('Remote packs:', err));
+      try {
+        await mergeRemotePacks();
+      } catch (err) {
+        console.warn('Remote packs:', err);
+      }
+    }
+
+    if (!(validPacks && validPacks.length) && packBox) {
+      packBox.innerHTML = '<p class="hint">Belum ada paket. Pastikan database terhubung dan paket sudah didaftarkan (Kelola Paket), atau file catalog.json ada di hosting.</p>';
     }
   } catch (err) {
     console.error(err);
-    document.getElementById('pack-list').innerHTML =
-      '<p class="hint">Gagal memuat catalog.json. Periksa file di repository.</p>';
+    if (packBox) {
+      packBox.innerHTML = '<p class="hint">Gagal memuat aplikasi: ' + (err.message || err) +
+        '. Periksa config.json di hosting (JSON valid) dan koneksi database.</p>';
+    }
   }
 }
 
