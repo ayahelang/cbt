@@ -1196,3 +1196,5 @@ input[type="checkbox"]:checked { accent-color: #22d3ee; }
 }
 .det-max { color: #94a3b8; font-size: 0.85rem; }
 .hasil-bulk-actions { margin-top: 4px; }
+
+.btn-ai-one-essay { min-width: 42px; }

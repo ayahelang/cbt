@@ -1884,9 +1884,77 @@ function renderAdminListClean(rows) {
               '<span class="det-label">Nilai:</span>' +
               '<input type="number" class="essay-score-input" data-idx="' + i + '" min="0" max="' + (e.maxScore || 20) + '" step="0.5" value="' + (typeof e.score === 'number' ? e.score : '') + '" placeholder="0-' + (e.maxScore || 20) + '" />' +
               '<span class="det-max">/ ' + (e.maxScore || 20) + '</span>' +
+              '<button type="button" class="btn btn-secondary btn-sm btn-ai-one-essay" data-idx="' + i + '" title="Nilai essay ini dengan AI">AI</button>' +
               '<button type="button" class="btn btn-primary btn-sm btn-save-essay" data-idx="' + i + '">Simpan</button>' +
               '</div></div></details>';
           }).join('');
+          esBox.querySelectorAll('.btn-ai-one-essay').forEach(btn => {
+            btn.addEventListener('click', async () => {
+              const idx = parseInt(btn.getAttribute('data-idx'), 10);
+              btn.disabled = true;
+              btn.textContent = '...';
+              try {
+                const one = [(row.essays || esList)[idx]];
+                if (!one[0]) throw new Error('Essay tidak ditemukan');
+                const graded = await gradeEssaysWithAi(one, one);
+                const g = graded[0] || {};
+                if (typeof g.score !== 'number') {
+                  throw new Error(g.feedback || 'AI tidak mengembalikan nilai');
+                }
+                if (!row.essays) row.essays = esList.slice();
+                row.essays[idx] = Object.assign({}, row.essays[idx] || esList[idx], {
+                  score: g.score,
+                  maxScore: g.maxScore || 20,
+                  feedback: g.feedback || ''
+                });
+                const sum = row.essays.reduce((s, e) => s + (typeof e.score === 'number' ? e.score : 0), 0);
+                const max = row.essays.reduce((s, e) => s + (e.maxScore || 20), 0);
+                row.essayScore = sum;
+                row.essayScoreMax = max;
+                const rid = row._id || row.id;
+                if (rid && window.SHSupabase && SHSupabase.updateResult) {
+                  await SHSupabase.updateResult(rid, {
+                    essays: row.essays,
+                    essay_score: sum,
+                    essay_score_max: max
+                  });
+                }
+                const inp = esBox.querySelector('.essay-score-input[data-idx="' + idx + '"]');
+                if (inp) inp.value = String(g.score);
+                const sumEl = esBox.querySelector('.essay-sum-score[data-idx="' + idx + '"]');
+                if (sumEl) {
+                  sumEl.textContent = g.score + '/' + (g.maxScore || 20);
+                  sumEl.className = 'det-ok essay-sum-score';
+                  sumEl.setAttribute('data-idx', String(idx));
+                }
+                // update feedback text in this details
+                const det = btn.closest('details');
+                if (det && g.feedback) {
+                  let fbLine = det.querySelector('.det-ai-fb');
+                  if (!fbLine) {
+                    fbLine = document.createElement('div');
+                    fbLine.className = 'det-line det-ai-fb';
+                    const scoreRow = det.querySelector('.det-score-row');
+                    if (scoreRow) scoreRow.parentNode.insertBefore(fbLine, scoreRow);
+                  }
+                  fbLine.innerHTML = '<span class="det-label">Catatan AI:</span> <span class="det-text">' + escapeHtml(g.feedback) + '</span>';
+                }
+                const scoreEl = div.querySelector('.result-line-score');
+                if (scoreEl) {
+                  const comb = calcCombined100(row);
+                  scoreEl.textContent = 'PG ' + (row.score != null ? row.score : '—') + '/' + (row.total != null ? row.total : '—') +
+                    (row.percent != null ? ' (' + row.percent + '%)' : '') +
+                    ' · E ' + sum + '/' + max +
+                    (comb != null ? ' · Σ ' + comb : ' · Σ —');
+                }
+                btn.textContent = 'AI';
+              } catch (err) {
+                alert(err.message || err);
+                btn.textContent = 'AI';
+              }
+              btn.disabled = false;
+            });
+          });
           esBox.querySelectorAll('.btn-save-essay').forEach(btn => {
             btn.addEventListener('click', async () => {
               const idx = parseInt(btn.getAttribute('data-idx'), 10);
