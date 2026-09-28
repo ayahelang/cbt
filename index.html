@@ -124,21 +124,32 @@
 
         <!-- TAB HASIL -->
         <div class="admin-tab-panel active" id="tab-hasil">
-          <div class="admin-actions">
-            <button id="btn-admin-refresh" class="btn btn-primary">Tampilkan Hasil</button>
-            <button id="btn-admin-logout" class="btn btn-secondary">Keluar</button>
-          </div>
-          <div class="form-group" style="margin-bottom:12px">
-            <label>Filter mapel</label>
-            <select id="admin-pack-filter">
-              <option value="">Semua mapel</option>
-            </select>
-          </div>
-          <button id="btn-admin-download" class="btn btn-primary" style="width:100%;margin-bottom:8px">Download CSV</button>
+          <details class="admin-fold filter-panel" open>
+            <summary class="admin-fold-title">Pengaturan filter hasil</summary>
+            <div class="admin-fold-body">
+              <div class="form-group">
+                <label>Paket / mapel</label>
+                <select id="admin-pack-filter">
+                  <option value="">Semua paket</option>
+                </select>
+              </div>
+              <p class="hint" style="margin:8px 0 6px">Centang sekolah → kelas → peserta. Kosong = semua. Atur dulu, baru klik Tampilkan Hasil.</p>
+              <div id="hasil-filter-tree" class="hasil-filter-tree"></div>
+              <div class="filter-actions" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">
+                <button type="button" id="btn-filter-load-tree" class="btn btn-secondary" style="flex:1">Muat opsi filter</button>
+                <button type="button" id="btn-filter-check-all" class="btn btn-secondary" style="flex:1">Centang semua</button>
+                <button type="button" id="btn-filter-uncheck-all" class="btn btn-secondary" style="flex:1">Kosongkan</button>
+              </div>
+            </div>
+          </details>
+          <button id="btn-admin-refresh" class="btn btn-primary" style="width:100%;margin:12px 0 8px">Tampilkan Hasil</button>
+          <button id="btn-admin-download" class="btn btn-secondary" style="width:100%;margin-bottom:8px">Download CSV</button>
           <button id="btn-admin-download-xlsx" class="btn btn-secondary" style="width:100%;margin-bottom:12px">Download Excel (.xlsx)</button>
-          <div id="admin-status" class="admin-status">Klik "Muat Data".</div>
+          <div id="admin-status" class="admin-status">Atur filter di atas, lalu klik Tampilkan Hasil.</div>
           <div id="admin-list" class="admin-list"></div>
         </div>
+
+
 
         <!-- TAB UPLOAD -->
         <div class="admin-tab-panel" id="tab-upload" style="display:none">
@@ -230,7 +241,7 @@
             <details class="admin-fold">
               <summary class="admin-fold-title">Tambah 1 butir PG</summary>
               <div class="admin-fold-body">
-                <div class="form-group"><label>Pertanyaan</label><textarea id="mp-q-text" rows="2"></textarea></div>
+                <div class="form-group"><label>Pertanyaan</label><textarea id="mp-q-text" rows="6" class="textarea-lg" placeholder="Ketik soal di sini..."></textarea></div>
                 <div class="form-group"><label>Opsi A</label><input type="text" id="mp-q-a" /></div>
                 <div class="form-group"><label>Opsi B</label><input type="text" id="mp-q-b" /></div>
                 <div class="form-group"><label>Opsi C</label><input type="text" id="mp-q-c" /></div>

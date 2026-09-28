@@ -934,3 +934,82 @@ input[type="checkbox"].cb-class-none {
   min-width: auto;
   padding: 8px 12px;
 }
+
+.hasil-filter-tree {
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid rgba(148,163,184,0.25);
+  border-radius: 12px;
+  padding: 8px;
+  background: rgba(15,23,42,0.35);
+}
+.hasil-filter-tree .ft-school,
+.hasil-filter-tree .ft-class,
+.hasil-filter-tree .ft-student {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 2px;
+  font-size: 0.88rem;
+}
+.hasil-filter-tree .ft-children {
+  margin-left: 18px;
+  border-left: 1px solid rgba(148,163,184,0.2);
+  padding-left: 8px;
+}
+.hasil-filter-tree .ft-toggle {
+  cursor: pointer;
+  user-select: none;
+  color: #22d3ee;
+  min-width: 1.2em;
+  display: inline-block;
+}
+.hasil-filter-tree label {
+  cursor: pointer;
+  flex: 1;
+  line-height: 1.35;
+}
+.hasil-filter-tree input[type="checkbox"] {
+  accent-color: #22d3ee;
+  margin-top: 3px;
+}
+.textarea-lg {
+  min-height: 120px;
+  width: 100%;
+  resize: vertical;
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+#manage-packs-list .admin-row.selected {
+  outline: 2px solid #22d3ee;
+  background: rgba(34, 211, 238, 0.12);
+}
+.result-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+.result-card .result-main {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: flex-start;
+}
+.result-card .result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.result-card .result-detail {
+  margin-top: 6px;
+  padding: 8px;
+  border-radius: 8px;
+  background: rgba(15,23,42,0.4);
+  font-size: 0.82rem;
+}
+@media (max-width: 600px) {
+  .hasil-filter-tree { max-height: 240px; }
+  .result-card .result-main { flex-direction: column; }
+}

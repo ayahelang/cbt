@@ -283,6 +283,18 @@ function setupEventListeners() {
   document.getElementById('btn-admin-enter').addEventListener('click', enterAdmin);
   document.getElementById('btn-admin-logout').addEventListener('click', logoutAdmin);
   document.getElementById('btn-admin-refresh').addEventListener('click', adminLoadData);
+
+  const btnFt = document.getElementById('btn-filter-load-tree');
+  if (btnFt) btnFt.addEventListener('click', loadHasilFilterTree);
+  const btnCa = document.getElementById('btn-filter-check-all');
+  if (btnCa) btnCa.addEventListener('click', () => {
+    document.querySelectorAll('#hasil-filter-tree input[type=checkbox]').forEach(c => { c.checked = true; });
+  });
+  const btnUa = document.getElementById('btn-filter-uncheck-all');
+  if (btnUa) btnUa.addEventListener('click', () => {
+    document.querySelectorAll('#hasil-filter-tree input[type=checkbox]').forEach(c => { c.checked = false; });
+  });
+
   document.getElementById('btn-admin-download').addEventListener('click', adminDownloadCSV);
   document.getElementById('btn-jump-unanswered').addEventListener('click', jumpToUnanswered);
   document.getElementById('btn-jump-last').addEventListener('click', jumpToLast);
@@ -383,9 +395,10 @@ async function onClassChange() {
       return;
     }
     const allowed = parts.filter(x => {
-      const sc = String(x.student_class || '');
-      const cid = String(x.class_id || '');
-      return (sc === String(cls) || cid === String(cls)) && x.active !== false;
+      const sc = String(x.student_class || '').trim();
+      const cid = String(x.class_id || '').trim();
+      const clsS = String(cls).trim();
+      return (sc === clsS || cid === clsS || sc.toLowerCase() === clsS.toLowerCase()) && x.active !== false;
     });
     if (!allowed.length) {
       nameSelect.innerHTML = '<option value="">-- Tidak ada peserta di kelas ini --</option>';
@@ -1350,7 +1363,8 @@ function openAdminPanel(admin) {
   loginScreen.classList.remove('active');
   adminScreen.classList.add('active');
   document.getElementById('admin-list').innerHTML = '';
-  document.getElementById('admin-status').textContent = 'Klik "Muat Data".';
+  document.getElementById('admin-status').textContent = 'Atur filter, lalu klik Tampilkan Hasil.';
+  loadHasilFilterTree().catch(()=>{});
   populateAdminPackFilter();
 }
 
@@ -1368,99 +1382,350 @@ enterAdmin = function() {
   openAdminPanel({ username: 'main', role: 'main' });
 };
 
+
+/* ===== Hasil ujian: filter hierarki + tampilan bersih ===== */
+window.__hasilFilterReady = false;
+window.__adminResultsRaw = [];
+
+async function loadHasilFilterTree() {
+  const box = document.getElementById('hasil-filter-tree');
+  const st = document.getElementById('admin-status');
+  if (!box) return;
+  box.innerHTML = '<p class="hint">Memuat opsi filter...</p>';
+  try {
+    if (!window.SHSupabase || !SHSupabase.sbEnabled()) {
+      box.innerHTML = '<p class="hint">Database belum siap — filter terbatas.</p>';
+      return;
+    }
+    // Opsi dari master kelas (produk CBT) + dari hasil yang sudah ada
+    const classes = await SHSupabase.listAllClassesAdmin();
+    let resultRows = [];
+    try { resultRows = await SHSupabase.listResults() || []; } catch (_) {}
+    window.__adminResultsRaw = (resultRows || []).map(r => ({
+      timestamp: r.created_at || r.finished_at || '',
+      name: r.student_name || r.name || '',
+      class: r.student_class || r.class || '',
+      institution: r.institution || '',
+      packId: r.pack_id || r.packId || '',
+      packTitle: r.pack_title || r.packTitle || '',
+      score: r.score,
+      total: r.total,
+      percent: r.percent,
+      essayScore: r.essay_score != null ? r.essay_score : r.essayScore,
+      essayScoreMax: r.essay_score_max != null ? r.essay_score_max : r.essayScoreMax,
+      essays: r.essays || [],
+      mcAnswers: r.mc_answers || r.mcAnswers || [],
+      tabSwitchCount: r.tab_switch_count || r.tabSwitchCount || 0,
+      cheatLog: r.cheat_log || r.cheatLog || [],
+      startedAt: r.started_at || r.startedAt || '',
+      finishedAt: r.finished_at || r.finishedAt || r.created_at || '',
+      timeUsedSeconds: r.time_used_seconds != null ? r.time_used_seconds : r.timeUsedSeconds,
+      _source: 'supabase',
+      _id: r.id
+    }));
+
+    // isi dropdown paket dari hasil + catalog
+    const packSel = document.getElementById('admin-pack-filter');
+    if (packSel) {
+      const cur = packSel.value;
+      const packs = new Map();
+      window.__adminResultsRaw.forEach(r => {
+        if (r.packId || r.packTitle) packs.set(r.packId || r.packTitle, r.packTitle || r.packId);
+      });
+      (validPacks || []).forEach(p => { if (p && p.id) packs.set(p.id, p.title || p.id); });
+      packSel.innerHTML = '<option value="">Semua paket</option>';
+      [...packs.entries()].sort((a,b) => String(a[1]).localeCompare(String(b[1]), 'id')).forEach(([id, title]) => {
+        const o = document.createElement('option');
+        o.value = id; o.textContent = title; packSel.appendChild(o);
+      });
+      if (cur) packSel.value = cur;
+    }
+
+    // bangun pohon: institution -> class name -> students
+    const tree = new Map(); // inst -> Map(className -> Set names)
+    async function ensureClass(inst, className, classId) {
+      const i = inst || '(Tanpa instansi)';
+      if (!tree.has(i)) tree.set(i, new Map());
+      const cm = tree.get(i);
+      if (!cm.has(className)) cm.set(className, new Set());
+      return cm.get(className);
+    }
+    for (const c of (classes || [])) {
+      const set = await ensureClass(c.institution || '', c.name, c.id);
+      try {
+        const mems = await SHSupabase.listClassMembers(c.id);
+        (mems || []).forEach(m => set.add(m.display_name || m.participant_name));
+      } catch (_) {}
+    }
+    window.__adminResultsRaw.forEach(r => {
+      const inst = r.institution || '(Tanpa instansi)';
+      const cls = r.class || '(Tanpa kelas)';
+      if (!tree.has(inst)) tree.set(inst, new Map());
+      const cm = tree.get(inst);
+      if (!cm.has(cls)) cm.set(cls, new Set());
+      if (r.name) cm.get(cls).add(r.name);
+    });
+
+    box.innerHTML = '';
+    if (!tree.size) {
+      box.innerHTML = '<p class="hint">Belum ada data sekolah/kelas. Isi di Kelola Peserta atau tunggu ada hasil ujian.</p>';
+      window.__hasilFilterReady = true;
+      return;
+    }
+    [...tree.keys()].sort((a,b) => a.localeCompare(b, 'id')).forEach(inst => {
+      const schoolWrap = document.createElement('div');
+      schoolWrap.className = 'ft-node';
+      const schoolHead = document.createElement('div');
+      schoolHead.className = 'ft-school';
+      const tog = document.createElement('span');
+      tog.className = 'ft-toggle';
+      tog.textContent = '▶';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.dataset.role = 'inst';
+      cb.dataset.inst = inst;
+      const lab = document.createElement('label');
+      lab.textContent = inst;
+      schoolHead.appendChild(tog);
+      schoolHead.appendChild(cb);
+      schoolHead.appendChild(lab);
+      const children = document.createElement('div');
+      children.className = 'ft-children';
+      children.style.display = 'none';
+      const classMap = tree.get(inst);
+      [...classMap.keys()].sort((a,b) => a.localeCompare(b, 'id')).forEach(cls => {
+        const classWrap = document.createElement('div');
+        const classHead = document.createElement('div');
+        classHead.className = 'ft-class';
+        const tog2 = document.createElement('span');
+        tog2.className = 'ft-toggle';
+        tog2.textContent = '▶';
+        const cb2 = document.createElement('input');
+        cb2.type = 'checkbox';
+        cb2.dataset.role = 'class';
+        cb2.dataset.inst = inst;
+        cb2.dataset.class = cls;
+        const lab2 = document.createElement('label');
+        lab2.textContent = cls;
+        classHead.appendChild(tog2);
+        classHead.appendChild(cb2);
+        classHead.appendChild(lab2);
+        const studChildren = document.createElement('div');
+        studChildren.className = 'ft-children';
+        studChildren.style.display = 'none';
+        [...classMap.get(cls)].sort((a,b) => a.localeCompare(b, 'id')).forEach(name => {
+          const row = document.createElement('div');
+          row.className = 'ft-student';
+          const cb3 = document.createElement('input');
+          cb3.type = 'checkbox';
+          cb3.dataset.role = 'student';
+          cb3.dataset.inst = inst;
+          cb3.dataset.class = cls;
+          cb3.dataset.name = name;
+          const lab3 = document.createElement('label');
+          lab3.textContent = name;
+          row.appendChild(cb3);
+          row.appendChild(lab3);
+          studChildren.appendChild(row);
+        });
+        tog2.onclick = (e) => {
+          e.preventDefault();
+          const open = studChildren.style.display !== 'none';
+          studChildren.style.display = open ? 'none' : 'block';
+          tog2.textContent = open ? '▶' : '▼';
+        };
+        cb2.addEventListener('change', () => {
+          studChildren.querySelectorAll('input[type=checkbox]').forEach(c => { c.checked = cb2.checked; });
+        });
+        classWrap.appendChild(classHead);
+        classWrap.appendChild(studChildren);
+        children.appendChild(classWrap);
+      });
+      tog.onclick = (e) => {
+        e.preventDefault();
+        const open = children.style.display !== 'none';
+        children.style.display = open ? 'none' : 'block';
+        tog.textContent = open ? '▶' : '▼';
+      };
+      cb.addEventListener('change', () => {
+        children.querySelectorAll('input[type=checkbox]').forEach(c => { c.checked = cb.checked; });
+      });
+      schoolWrap.appendChild(schoolHead);
+      schoolWrap.appendChild(children);
+      box.appendChild(schoolWrap);
+    });
+    window.__hasilFilterReady = true;
+    if (st) st.textContent = 'Filter siap. Centang yang diinginkan, lalu klik Tampilkan Hasil.';
+  } catch (e) {
+    console.error(e);
+    box.innerHTML = '<p class="hint">Gagal muat filter: ' + (e.message || e) + '</p>';
+  }
+}
+
+function getHasilFilterSelection() {
+  const box = document.getElementById('hasil-filter-tree');
+  const pack = (document.getElementById('admin-pack-filter') || {}).value || '';
+  if (!box) return { pack, students: null, classes: null, insts: null, anyChecked: false };
+  const studCbs = [...box.querySelectorAll('input[data-role="student"]')];
+  const classCbs = [...box.querySelectorAll('input[data-role="class"]')];
+  const instCbs = [...box.querySelectorAll('input[data-role="inst"]')];
+  const anyChecked = studCbs.some(c => c.checked) || classCbs.some(c => c.checked) || instCbs.some(c => c.checked);
+  const students = new Set();
+  const classes = new Set();
+  const insts = new Set();
+  studCbs.filter(c => c.checked).forEach(c => {
+    students.add(c.dataset.name);
+    classes.add(c.dataset.class);
+    insts.add(c.dataset.inst);
+  });
+  classCbs.filter(c => c.checked).forEach(c => {
+    classes.add(c.dataset.class);
+    insts.add(c.dataset.inst);
+    // all students under class if class checked but no student ticks
+    box.querySelectorAll('input[data-role="student"][data-class="' + CSS.escape(c.dataset.class) + '"][data-inst="' + CSS.escape(c.dataset.inst) + '"]').forEach(s => {
+      if (c.checked) students.add(s.dataset.name);
+    });
+  });
+  instCbs.filter(c => c.checked).forEach(c => {
+    insts.add(c.dataset.inst);
+  });
+  return { pack, students, classes, insts, anyChecked };
+}
+
+function applyHasilFilters(rows) {
+  const f = getHasilFilterSelection();
+  return (rows || []).filter(r => {
+    if (f.pack && r.packId !== f.pack && r.packTitle !== f.pack) return false;
+    if (!f.anyChecked) return true; // no roster filter = all
+    // if any student checked, prefer student match
+    const studChecked = f.students && f.students.size;
+    if (studChecked) {
+      return f.students.has(r.name);
+    }
+    if (f.classes && f.classes.size) {
+      return f.classes.has(r.class);
+    }
+    if (f.insts && f.insts.size) {
+      const inst = r.institution || '(Tanpa instansi)';
+      return f.insts.has(inst);
+    }
+    return true;
+  });
+}
+
+function renderAdminListClean(rows) {
+  const list = document.getElementById('admin-list');
+  if (!list) return;
+  list.innerHTML = '';
+  (rows || []).forEach(row => {
+    const div = document.createElement('div');
+    div.className = 'admin-row';
+    const packLabel = row.packTitle || row.packId || '—';
+    const cls = row.class || '—';
+    const name = row.name || '—';
+    const score = row.score != null ? row.score : '—';
+    const total = row.total != null ? row.total : '—';
+    const pct = row.percent != null ? row.percent + '%' : '';
+    const es = row.essayScore != null ? row.essayScore : null;
+    const esMax = row.essayScoreMax != null ? row.essayScoreMax : '';
+    div.innerHTML =
+      '<div class="result-card">' +
+      '<div class="result-main">' +
+      '<div class="info"><strong>' + escapeHtml(name) + '</strong>' +
+      '<br><small>Kelas: ' + escapeHtml(cls) + '</small>' +
+      '<br><small>Paket: ' + escapeHtml(packLabel) + '</small></div>' +
+      '<div class="score">PG ' + score + '/' + total + (pct ? ' (' + pct + ')' : '') +
+      (es != null ? '<br>Essay ' + es + (esMax !== '' ? '/' + esMax : '') : '') +
+      '</div></div>' +
+      '<div class="result-actions">' +
+      '<button type="button" class="btn btn-secondary btn-pg-det">Detail PG</button>' +
+      '<button type="button" class="btn btn-secondary btn-es-det">Detail Essay</button>' +
+      '<button type="button" class="btn-del">Hapus</button>' +
+      '</div>' +
+      '<div class="result-detail result-pg" style="display:none"></div>' +
+      '<div class="result-detail result-es" style="display:none"></div>' +
+      '</div>';
+    const pgBtn = div.querySelector('.btn-pg-det');
+    const esBtn = div.querySelector('.btn-es-det');
+    const pgBox = div.querySelector('.result-pg');
+    const esBox = div.querySelector('.result-es');
+    pgBtn.onclick = () => {
+      const open = pgBox.style.display !== 'none';
+      pgBox.style.display = open ? 'none' : 'block';
+      if (!open) {
+        const mc = row.mcAnswers || [];
+        pgBox.innerHTML = mc.length
+          ? mc.map((m,i) => '<details><summary>PG ' + (i+1) + ' · ' + (m.isCorrect ? 'Benar' : 'Salah') + '</summary>' +
+              '<div>Soal: ' + escapeHtml(m.question||'') + '<br>Jawaban: ' + escapeHtml(m.userAnswer||'') +
+              '<br>Kunci: ' + escapeHtml(m.correctAnswer||'') + '</div></details>').join('')
+          : '<small>Detail PG tidak tersimpan pada hasil ini.</small>';
+      }
+    };
+    esBtn.onclick = () => {
+      const open = esBox.style.display !== 'none';
+      esBox.style.display = open ? 'none' : 'block';
+      if (!open) {
+        const esList = row.essays || [];
+        esBox.innerHTML = esList.length
+          ? esList.map((e,i) => '<details><summary>Essay ' + (i+1) +
+              (e.score != null ? ' · ' + e.score + '/' + (e.maxScore||20) : '') + '</summary>' +
+              '<div>Soal: ' + escapeHtml(e.question||'') +
+              '<br>Jawaban siswa: ' + escapeHtml(e.answer||'') +
+              (e.feedback ? '<br>Catatan: ' + escapeHtml(e.feedback) : '') +
+              '</div></details>').join('')
+          : '<small>Tidak ada jawaban essay / belum dinilai.</small>';
+      }
+    };
+    div.querySelector('.btn-del').onclick = () => adminDeleteRow(row);
+    list.appendChild(div);
+  });
+}
+
+
 // Enhance adminLoadData: Supabase = sumber utama (hindari data dobel Sheet+Supabase)
 const _adminLoadDataOrig = adminLoadData;
 adminLoadData = async function() {
   const status = document.getElementById('admin-status');
-  status.textContent = 'Memuat...';
-  document.getElementById('admin-list').innerHTML = '';
-  let rows = [];
-  let fromSb = 0;
-  let fromSheet = 0;
-
-  // 1) Supabase dulu
-  if (window.SHSupabase && SHSupabase.sbEnabled()) {
-    try {
+  const list = document.getElementById('admin-list');
+  if (list) list.innerHTML = '';
+  status.textContent = 'Memuat hasil...';
+  try {
+    if (!window.__hasilFilterReady) {
+      await loadHasilFilterTree();
+    }
+    // refresh raw results
+    let rows = [];
+    if (window.SHSupabase && SHSupabase.sbEnabled()) {
       const sbRows = await SHSupabase.listResults();
-      (sbRows || []).forEach(r => {
-        rows.push({
-          timestamp: r.created_at,
-          name: r.student_name,
-          class: r.student_class,
-          packId: r.pack_id || '',
-          packTitle: r.pack_title || '',
-          score: r.score,
-          total: r.total,
-          percent: r.percent,
-          timeUsedSeconds: r.time_used_seconds,
-          autoSubmit: r.auto_submit ? 'YA' : 'TIDAK',
-          tabSwitchCount: r.tab_switch_count || 0,
-          _source: 'supabase',
-          _id: r.id
-        });
-        fromSb++;
-      });
-    } catch (e) {
-      console.warn('Supabase list failed', e);
+      rows = (sbRows || []).map(r => ({
+        timestamp: r.created_at || '',
+        name: r.student_name || '',
+        class: r.student_class || '',
+        institution: r.institution || '',
+        packId: r.pack_id || '',
+        packTitle: r.pack_title || '',
+        score: r.score,
+        total: r.total,
+        percent: r.percent,
+        essayScore: r.essay_score != null ? r.essay_score : null,
+        essayScoreMax: r.essay_score_max != null ? r.essay_score_max : null,
+        essays: r.essays || [],
+        mcAnswers: r.mc_answers || [],
+        tabSwitchCount: r.tab_switch_count || 0,
+        timeUsedSeconds: r.time_used_seconds,
+        _source: 'supabase',
+        _id: r.id
+      }));
     }
+    window.__adminResultsRaw = rows;
+    window._adminRows = rows;
+    const filtered = applyHasilFilters(rows);
+    status.textContent = 'Menampilkan ' + filtered.length + ' dari ' + rows.length + ' hasil.';
+    renderAdminListClean(filtered);
+  } catch (e) {
+    console.error(e);
+    status.textContent = e.message || 'Gagal memuat hasil';
   }
-
-  // 2) Sheet hanya jika Supabase kosong / tidak aktif (cadangan)
-  if (fromSb === 0 && config.googleScriptUrl) {
-    try {
-      const res = await fetch(config.googleScriptUrl + '?action=list');
-      const data = await res.json();
-      (data.rows || []).forEach(r => {
-        rows.push({
-          timestamp: r.timestamp,
-          name: r.name,
-          class: r.class,
-          packId: r.packId || '',
-          packTitle: r.packTitle || '',
-          score: r.score,
-          total: r.total,
-          percent: r.percent,
-          timeUsedSeconds: r.timeUsedSeconds,
-          autoSubmit: r.autoSubmit,
-          tabSwitchCount: r.tabSwitchCount || 0,
-          _source: 'sheet'
-        });
-        fromSheet++;
-      });
-    } catch (e) {
-      console.warn('Sheet list failed', e);
-    }
-  }
-
-  // Dedup tambahan: nama+kelas+packId+skor (jaga-jaga)
-  const seen = new Set();
-  rows = rows.filter(r => {
-    const key = [r.name, r.class, r.packId, r.score, r.total].join('|').toLowerCase();
-    if (seen.has(key) && r._source === 'sheet') return false;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-
-  window._adminRows = rows;
-  const sel = document.getElementById('admin-pack-filter');
-  if (sel) {
-    const seenOpt = new Set(['']);
-    [...sel.options].forEach(o => seenOpt.add(o.value));
-    rows.forEach(r => {
-      if (r.packId && !seenOpt.has(r.packId)) {
-        seenOpt.add(r.packId);
-        const opt = document.createElement('option');
-        opt.value = r.packId;
-        opt.textContent = r.packTitle || r.packId;
-        sel.appendChild(opt);
-      }
-    });
-  }
-  const filtered = getFilteredAdminRows();
-  const srcNote = fromSb ? ('Supabase ' + fromSb) : (fromSheet ? ('Sheet ' + fromSheet) : '0');
-  status.textContent = 'Menampilkan ' + filtered.length + ' dari ' + rows.length + ' data (' + srcNote + ').';
-  renderAdminList(filtered);
 };
 
 function adminDownloadXlsx() {
@@ -1967,6 +2232,7 @@ async function refreshManagePacksList() {
     _managePacksCache.forEach(p => {
       const div = document.createElement('div');
       div.className = 'admin-row';
+      div.dataset.packId = p.id;
       const ownerLabel = nameMap[p.owner_username] || p.owner_username || 'Admin Utama';
       div.innerHTML = '<div class="info" style="flex:1;cursor:pointer"><strong>' + escapeHtml(p.title || p.id) +
         '</strong><br><small>Pemilik: ' + escapeHtml(ownerLabel) +
@@ -1979,6 +2245,10 @@ async function refreshManagePacksList() {
 async function selectManagePack(p) {
   const edit = document.getElementById('mp-edit-section');
   if (edit) edit.style.display = 'block';
+  document.querySelectorAll('#manage-packs-list .admin-row').forEach(r => r.classList.remove('selected'));
+  document.querySelectorAll('#manage-packs-list .admin-row').forEach(r => {
+    if (r.dataset && r.dataset.packId === p.id) r.classList.add('selected');
+  });
   document.getElementById('mp-pack-id').value = p.id;
   document.getElementById('mp-pack-title').value = p.title || '';
   document.getElementById('mp-edit-status').textContent = 'Paket dipilih: ' + p.id;
