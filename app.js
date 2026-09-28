@@ -1067,16 +1067,10 @@ function populateAdminPackFilter() {
 
 function getFilteredAdminRows() {
   const rows = window._adminRows || [];
+  if (typeof applyHasilFilters === 'function') return applyHasilFilters(rows);
   const filter = (document.getElementById('admin-pack-filter')?.value || '').trim();
   if (!filter) return rows;
-  return rows.filter(r => {
-    const id = String(r.packId || '').trim();
-    const title = String(r.packTitle || '').trim().toLowerCase();
-    if (id === filter) return true;
-    const pack = (validPacks || []).find(p => p.id === filter);
-    if (pack && title && title === String(pack.title || '').toLowerCase()) return true;
-    return false;
-  });
+  return rows.filter(r => String(r.packId || '') === filter || String(r.packTitle || '') === filter);
 }
 
 function renderAdminList(rows) {
@@ -1759,6 +1753,40 @@ function applyHasilFilters(rows) {
   });
 }
 
+
+function calcEssayStats(row) {
+  const essays = row.essays || [];
+  let sum = row.essayScore != null ? Number(row.essayScore) : null;
+  let max = row.essayScoreMax != null ? Number(row.essayScoreMax) : null;
+  if (essays.length) {
+    const scored = essays.filter(e => e && typeof e.score === 'number');
+    if (scored.length) {
+      sum = scored.reduce((a, e) => a + Number(e.score || 0), 0);
+      max = essays.reduce((a, e) => a + Number(e.maxScore || 20), 0);
+    } else if (max == null) {
+      max = essays.reduce((a, e) => a + Number(e.maxScore || 20), 0);
+    }
+  }
+  return { sum, max, essays };
+}
+
+function calcCombined100(row) {
+  const total = Number(row.total) || 0;
+  const score = Number(row.score) || 0;
+  const pgPct = total > 0 ? (score / total) * 100 : null;
+  const es = calcEssayStats(row);
+  let essayPct = null;
+  if (es.sum != null && es.max > 0) essayPct = (es.sum / es.max) * 100;
+  if (pgPct != null && essayPct != null) return Math.round(((pgPct + essayPct) / 2) * 10) / 10;
+  if (pgPct != null && essayPct == null && !(row.essays && row.essays.length)) return Math.round(pgPct * 10) / 10;
+  if (pgPct != null && essayPct == null) return null; // ada essay belum dinilai
+  return essayPct != null ? Math.round(essayPct * 10) / 10 : null;
+}
+
+function formatDetailBlock(label, text) {
+  return '<div class="det-line"><span class="det-label">' + label + '</span> <span class="det-text">' + escapeHtml(text || '') + '</span></div>';
+}
+
 function renderAdminListClean(rows) {
   const list = document.getElementById('admin-list');
   if (!list) return;
@@ -1766,25 +1794,20 @@ function renderAdminListClean(rows) {
   const isUuid = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(s||'').trim());
   (rows || []).forEach(row => {
     let cls = row.class || '—';
-    if (isUuid(cls) && row.classLabel) cls = row.classLabel;
     if (isUuid(cls)) cls = '—';
     const packLabel = row.packTitle || row.packId || '—';
     const name = row.name || '—';
     const score = row.score != null ? row.score : '—';
     const total = row.total != null ? row.total : '—';
     const pct = row.percent != null ? row.percent + '%' : '';
-    let essayBit = '';
-    if (row.essayScore != null) {
-      essayBit = ' · E ' + row.essayScore + (row.essayScoreMax != null ? '/' + row.essayScoreMax : '');
-    } else if (row.essays && row.essays.length) {
-      const scored = row.essays.filter(e => e && e.score != null);
-      if (scored.length) {
-        const sum = scored.reduce((a,e) => a + Number(e.score || 0), 0);
-        essayBit = ' · E ' + sum;
-      } else {
-        essayBit = ' · E —';
-      }
+    const es = calcEssayStats(row);
+    let essayBit = ' · E —';
+    if (es.sum != null) {
+      essayBit = ' · E ' + es.sum + (es.max != null ? '/' + es.max : '');
     }
+    const combined = calcCombined100(row);
+    const combinedBit = combined != null ? ' · Σ ' + combined : ' · Σ —';
+
     const div = document.createElement('div');
     div.className = 'admin-row result-row-compact';
     div.innerHTML =
@@ -1794,25 +1817,28 @@ function renderAdminListClean(rows) {
       '<strong>' + escapeHtml(name) + '</strong>' +
       '<span class="result-meta">' + escapeHtml(cls) + ' · ' + escapeHtml(packLabel) + '</span>' +
       '</div>' +
-      '<div class="result-line-score">PG ' + score + '/' + total + (pct ? ' (' + pct + ')' : '') + essayBit + '</div>' +
+      '<div class="result-line-score">PG ' + score + '/' + total + (pct ? ' (' + pct + ')' : '') + essayBit + combinedBit + '</div>' +
+      '<button type="button" class="btn btn-secondary btn-sm btn-ai-grade" title="Nilai essay dengan AI">AI Essay</button>' +
       '<button type="button" class="btn-del result-del">Hapus</button>' +
       '</div>' +
       '<div class="result-detail-panel" style="display:none">' +
       '<div class="result-detail result-pg"></div>' +
       '<div class="result-detail result-es"></div>' +
       '</div>';
+
     const expBtn = div.querySelector('.result-expand-btn');
     const panel = div.querySelector('.result-detail-panel');
     const pgBox = div.querySelector('.result-pg');
     const esBox = div.querySelector('.result-es');
     let loaded = false;
+
     expBtn.onclick = async () => {
       const open = panel.style.display !== 'none';
       panel.style.display = open ? 'none' : 'block';
       expBtn.textContent = open ? '▶' : '▼';
       if (open || loaded) return;
       loaded = true;
-      pgBox.innerHTML = '<small>Memuat detail PG...</small>';
+      pgBox.innerHTML = '<div class="det-section-title">Detail PG</div><small>Memuat...</small>';
       esBox.innerHTML = '';
       try {
         let mc = row.mcAnswers || [];
@@ -1825,28 +1851,58 @@ function renderAdminListClean(rows) {
             isCorrect: it.is_correct
           }));
         }
-        pgBox.innerHTML = '<strong>Detail PG</strong>' + (mc.length
-          ? mc.map((m,i) => '<details><summary>PG ' + (i+1) + ' · ' + (m.isCorrect ? 'Benar' : 'Salah') + '</summary>' +
-              '<div>Soal: ' + escapeHtml(m.question||'') + '<br>Jawaban: ' + escapeHtml(m.userAnswer||'') +
-              '<br>Kunci: ' + escapeHtml(m.correctAnswer||'') + '</div></details>').join('')
-          : '<small>Detail PG tidak tersimpan untuk hasil ini (ujian sebelum fitur ini / gagal simpan butir).</small>');
-        const esList = row.essays || [];
-        esBox.innerHTML = '<strong>Detail Essay</strong>' + (esList.length
-          ? esList.map((e,i) => '<details><summary>Essay ' + (i+1) +
-              (e.score != null ? ' · ' + e.score + '/' + (e.maxScore||20) : ' · belum dinilai') + '</summary>' +
-              '<div>Soal: ' + escapeHtml(e.question||'') +
-              '<br>Jawaban: ' + escapeHtml(e.answer||'') +
-              (e.feedback ? '<br>Catatan: ' + escapeHtml(e.feedback) : '') +
-              '</div></details>').join('')
-          : '<small>Tidak ada jawaban essay.</small>');
+        if (!mc.length) {
+          pgBox.innerHTML = '<div class="det-section-title">Detail PG</div><small class="det-empty">Detail PG tidak tersimpan untuk hasil ini.</small>';
+        } else {
+          pgBox.innerHTML = '<div class="det-section-title">Detail PG</div>' + mc.map((m, i) => {
+            const ok = m.isCorrect ? 'Benar' : 'Salah';
+            const okCls = m.isCorrect ? 'det-ok' : 'det-bad';
+            return '<details class="det-item"><summary><span class="det-no">PG ' + (i+1) + '</span> · <span class="' + okCls + '">' + ok + '</span></summary>' +
+              '<div class="det-body">' +
+              formatDetailBlock('Soal:', m.question) +
+              formatDetailBlock('Jawaban:', m.userAnswer) +
+              formatDetailBlock('Kunci:', m.correctAnswer) +
+              '</div></details>';
+          }).join('');
+        }
+        const esList = es.essays || [];
+        if (!esList.length) {
+          esBox.innerHTML = '<div class="det-section-title">Detail Essay</div><small class="det-empty">Tidak ada jawaban essay.</small>';
+        } else {
+          esBox.innerHTML = '<div class="det-section-title">Detail Essay</div>' + esList.map((e, i) => {
+            const sc = (typeof e.score === 'number') ? (e.score + '/' + (e.maxScore || 20)) : 'belum dinilai';
+            const scCls = (typeof e.score === 'number') ? 'det-ok' : 'det-muted';
+            return '<details class="det-item"><summary><span class="det-no">Essay ' + (i+1) + '</span> · <span class="' + scCls + '">' + sc + '</span></summary>' +
+              '<div class="det-body">' +
+              formatDetailBlock('Soal:', e.question) +
+              formatDetailBlock('Jawaban:', e.answer) +
+              (e.feedback ? formatDetailBlock('Catatan AI:', e.feedback) : '') +
+              (typeof e.score === 'number' ? formatDetailBlock('Nilai:', e.score + ' / ' + (e.maxScore || 20)) : formatDetailBlock('Nilai:', 'Belum dinilai — klik tombol AI Essay')) +
+              '</div></details>';
+          }).join('');
+        }
       } catch (err) {
         pgBox.innerHTML = '<small>Gagal muat detail: ' + escapeHtml(err.message || String(err)) + '</small>';
+      }
+    };
+
+    div.querySelector('.btn-ai-grade').onclick = async (ev) => {
+      const btn = ev.currentTarget;
+      btn.disabled = true;
+      btn.textContent = 'Menilai...';
+      try {
+        await regradeResultEssays({ ...row, id: row._id || row.id, essays: row.essays || [] }, btn);
+      } catch (e) {
+        alert(e.message || e);
+        btn.textContent = 'AI Essay';
+        btn.disabled = false;
       }
     };
     div.querySelector('.result-del').onclick = () => adminDeleteRow(row);
     list.appendChild(div);
   });
 }
+
 
 
 
@@ -1917,16 +1973,38 @@ adminLoadData = async function() {
 function adminDownloadXlsx() {
   const rows = getFilteredAdminRows();
   if (!rows.length) {
-    alert('Tidak ada data. Muat data dulu.');
+    alert('Tidak ada data. Klik Tampilkan Hasil dulu.');
     return;
   }
-  const filter = document.getElementById('admin-pack-filter')?.value || 'semua';
-  if (window.SHSupabase) {
-    SHSupabase.downloadXlsx(rows, `hasil_${filter}_${new Date().toISOString().slice(0,10)}.xlsx`);
-  } else {
-    alert('Module Excel tidak tersedia');
+  if (typeof XLSX === 'undefined') {
+    alert('Library Excel belum termuat.');
+    return;
   }
+  const data = rows.map(r => {
+    const es = calcEssayStats(r);
+    const comb = calcCombined100(r);
+    const pgPct = r.percent != null ? r.percent : (r.total ? Math.round((r.score / r.total) * 1000) / 10 : null);
+    return {
+      Nama: r.name,
+      Kelas: r.class,
+      Paket: r.packTitle || r.packId || '',
+      PG_Benar: r.score,
+      PG_Total: r.total,
+      PG_Persen: pgPct,
+      Essay_Skor: es.sum,
+      Essay_Maks: es.max,
+      Nilai_Gabungan_100: comb,
+      WaktuDetik: r.timeUsedSeconds || '',
+      TabSwitch: r.tabSwitchCount || 0,
+      Timestamp: r.timestamp || ''
+    };
+  });
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Hasil');
+  XLSX.writeFile(wb, 'hasil_' + new Date().toISOString().slice(0, 10) + '.xlsx');
 }
+
 
 async function onUploadPack() {
   const st = document.getElementById('upload-status');
@@ -3386,8 +3464,10 @@ async function regradeResultEssays(row, btn) {
   const graded = await gradeEssaysWithAi(essays, essays);
   const sum = graded.reduce((s, e) => s + (typeof e.score === 'number' ? e.score : 0), 0);
   const max = graded.reduce((s, e) => s + (e.maxScore || 20), 0);
-  if (!row.id) throw new Error('ID hasil tidak ada');
-  await SHSupabase.updateResult(row.id, { essays: graded, essay_score: sum, essay_score_max: max });
-  if (btn) btn.textContent = 'Selesai · ' + sum + '/' + max;
+  const rid = row._id || row.id;
+  if (!rid) throw new Error('ID hasil tidak ada');
+  if (!window.SHSupabase || !SHSupabase.updateResult) throw new Error('Modul update hasil belum siap');
+  await SHSupabase.updateResult(rid, { essays: graded, essay_score: sum, essay_score_max: max });
+  if (btn) btn.textContent = 'Σ E ' + sum + '/' + max;
   if (typeof adminLoadData === 'function') adminLoadData();
 }

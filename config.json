@@ -2,7 +2,7 @@
   "examTitle": "Silverhawk CBT",
   "productId": "cbt",
   "schoolName": "SMA PMA",
-  "version": "2.9.4",
+  "version": "2.9.5",
   "essayAiViaEdge": true,
   "essayManualMode": false,
   "note": "Opsional. Utama: Edge Function app-config. Jangan isi password di file ini jika repo publik."
