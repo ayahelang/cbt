@@ -53,6 +53,35 @@ let currentIndex = 0;
 let answers = {};
 let essayAnswers = {};
 let cheatLog = [];
+
+/** URL function bootstrap — bukan rahasia (hanya alamat project). Key tidak disimpan di GitHub. */
+const APP_BOOTSTRAP_URL = 'https://edaujcxmncoslykyddwf.supabase.co/functions/v1/app-config';
+
+async function loadAppConfig() {
+  // 1) Coba Edge Function (sumber utama, tanpa file config.json di repo)
+  try {
+    const res = await fetch(APP_BOOTSTRAP_URL, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      cache: 'no-store'
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.supabaseUrl && data.supabaseAnonKey) return data;
+    }
+  } catch (e) {
+    console.warn('bootstrap edge:', e);
+  }
+  // 2) Cadangan lokal (opsional) — boleh dihapus dari repo setelah edge aktif
+  try {
+    const res = await fetch('config.json', { cache: 'no-store' });
+    if (res.ok) return await res.json();
+  } catch (e) {
+    console.warn('config.json cadangan:', e);
+  }
+  throw new Error('Tidak bisa memuat konfigurasi aplikasi (edge app-config / config.json).');
+}
+
 function examProgressKey() {
   const pack = selectedPack && selectedPack.id ? selectedPack.id : 'unknown';
   const nm = (studentName || '').trim().toLowerCase();
@@ -123,60 +152,42 @@ const essayTextarea = document.getElementById('essay-answer');
 async function init() {
   const packBox = document.getElementById('pack-list');
   try {
-    // config wajib
-    const cfgRes = await fetch('config.json', { cache: 'no-store' });
-    if (!cfgRes.ok) throw new Error('config.json HTTP ' + cfgRes.status);
-    config = await cfgRes.json();
+    config = await loadAppConfig();
+    // Jangan mengandalkan password di file publik
     window.config = config;
     window.__CBT_CONFIG__ = config;
     if (window.SHSupabase && typeof SHSupabase.refreshConfig === 'function') {
       try { SHSupabase.refreshConfig(config); } catch (_) {}
     }
 
-    // students.json opsional (hanya seed/impor)
     students = {};
-    try {
-      const stuRes = await fetch('students.json', { cache: 'no-store' });
-      if (stuRes.ok) students = await stuRes.json();
-    } catch (e) { console.warn('students.json opsional:', e); }
-
-    // catalog.json = seed lokal; jika gagal, tetap lanjut dari database
     catalog = { packs: [] };
     validPacks = [];
-    try {
-      const catRes = await fetch('catalog.json', { cache: 'no-store' });
-      if (catRes.ok) {
-        catalog = await catRes.json();
-        validPacks = await validateCatalog(catalog.packs || []);
-      } else {
-        console.warn('catalog.json HTTP', catRes.status);
-      }
-    } catch (e) {
-      console.warn('catalog.json gagal, pakai database saja:', e);
-    }
 
-    renderPackList();
-    setupEventListeners();
-    setupAntiCheatUi();
-    setupAdminExtendedUi();
-    loadProctorSettings().catch(() => {});
-
+    // Paket HANYA dari database (bukan catalog.json)
     if (window.SHSupabase && SHSupabase.sbEnabled()) {
       try {
         await mergeRemotePacks();
       } catch (err) {
         console.warn('Remote packs:', err);
       }
+    } else {
+      throw new Error('Database belum terhubung. Deploy Edge Function app-config + set secrets.');
     }
 
+    renderPackList();
+    setupEventListeners();
+    if (typeof setupAntiCheatUi === 'function') setupAntiCheatUi();
+    if (typeof setupAdminExtendedUi === 'function') setupAdminExtendedUi();
+    if (typeof loadProctorSettings === 'function') loadProctorSettings().catch(() => {});
+
     if (!(validPacks && validPacks.length) && packBox) {
-      packBox.innerHTML = '<p class="hint">Belum ada paket. Pastikan database terhubung dan paket sudah didaftarkan (Kelola Paket), atau file catalog.json ada di hosting.</p>';
+      packBox.innerHTML = '<p class="hint">Belum ada paket di database. Login admin → Kelola Paket → daftarkan/upload paket.</p>';
     }
   } catch (err) {
     console.error(err);
     if (packBox) {
-      packBox.innerHTML = '<p class="hint">Gagal memuat aplikasi: ' + (err.message || err) +
-        '. Periksa config.json di hosting (JSON valid) dan koneksi database.</p>';
+      packBox.innerHTML = '<p class="hint">Gagal memuat aplikasi: ' + (err.message || err) + '</p>';
     }
   }
 }
@@ -293,47 +304,49 @@ async function selectPack(pack, btnEl) {
   }
 }
 
+function onEl(id, event, handler) {
+  const el = typeof id === 'string' ? document.getElementById(id) : id;
+  if (!el) return;
+  el.addEventListener(event, handler);
+}
+
 function setupEventListeners() {
-  wireUploadPackIdAuto();
-  setTimeout(refreshAdminDatalists, 1200);
-  classSelect.addEventListener('change', onClassChange);
-  examPassword.addEventListener('input', checkStartReady);
-  nameSelect.addEventListener('change', checkStartReady);
-  btnStart.addEventListener('click', onStartClick);
-  btnPrev.addEventListener('click', () => navigate(-1));
-  btnNext.addEventListener('click', () => navigate(1));
-  btnSubmit.addEventListener('click', confirmSubmit);
-  document.getElementById('btn-download').addEventListener('click', downloadResult);
-  document.getElementById('btn-review').addEventListener('click', showReview);
-  document.getElementById('close-review').addEventListener('click', () =>
-    document.getElementById('review-modal').classList.remove('active'));
-  essayTextarea.addEventListener('input', saveCurrentEssay);
-
-  document.getElementById('btn-show-practice').addEventListener('click', showPracticeLogin);
-  document.getElementById('btn-back-from-practice').addEventListener('click', hideSpecialLogins);
-  document.getElementById('btn-start-practice').addEventListener('click', startPractice);
-  document.getElementById('btn-show-admin').addEventListener('click', showAdminLogin);
-  document.getElementById('btn-back-from-admin').addEventListener('click', hideSpecialLogins);
-  document.getElementById('btn-admin-enter').addEventListener('click', enterAdmin);
-  document.getElementById('btn-admin-logout').addEventListener('click', logoutAdmin);
-  document.getElementById('btn-admin-refresh').addEventListener('click', adminLoadData);
-
-  const btnFt = document.getElementById('btn-filter-load-tree');
-  if (btnFt) btnFt.addEventListener('click', loadHasilFilterTree);
-  const btnCa = document.getElementById('btn-filter-check-all');
-  if (btnCa) btnCa.addEventListener('click', () => {
+  onEl(classSelect, 'change', onClassChange);
+  onEl(examPassword, 'input', checkStartReady);
+  onEl(nameSelect, 'change', checkStartReady);
+  onEl(btnStart, 'click', onStartClick);
+  onEl(btnPrev, 'click', () => navigate(-1));
+  onEl(btnNext, 'click', () => navigate(1));
+  onEl(btnSubmit, 'click', confirmSubmit);
+  onEl('btn-download', 'click', downloadResult);
+  onEl('btn-review', 'click', showReview);
+  onEl('close-review', 'click', () => {
+    const m = document.getElementById('review-modal');
+    if (m) m.classList.remove('active');
+  });
+  onEl(essayTextarea, 'input', saveCurrentEssay);
+  onEl('btn-show-practice', 'click', showPracticeLogin);
+  onEl('btn-back-from-practice', 'click', hideSpecialLogins);
+  onEl('btn-start-practice', 'click', startPractice);
+  onEl('btn-show-admin', 'click', showAdminLogin);
+  onEl('btn-back-from-admin', 'click', hideSpecialLogins);
+  onEl('btn-admin-enter', 'click', enterAdmin);
+  onEl('btn-admin-logout', 'click', logoutAdmin);
+  onEl('btn-admin-refresh', 'click', adminLoadData);
+  onEl('btn-filter-load-tree', 'click', () => loadHasilFilterTree && loadHasilFilterTree());
+  onEl('btn-filter-check-all', 'click', () => {
     document.querySelectorAll('#hasil-filter-tree input[type=checkbox]').forEach(c => { c.checked = true; });
   });
-  const btnUa = document.getElementById('btn-filter-uncheck-all');
-  if (btnUa) btnUa.addEventListener('click', () => {
+  onEl('btn-filter-uncheck-all', 'click', () => {
     document.querySelectorAll('#hasil-filter-tree input[type=checkbox]').forEach(c => { c.checked = false; });
   });
-
-  document.getElementById('btn-admin-download').addEventListener('click', adminDownloadCSV);
-  document.getElementById('btn-jump-unanswered').addEventListener('click', jumpToUnanswered);
-  document.getElementById('btn-jump-last').addEventListener('click', jumpToLast);
-  document.getElementById('btn-back-home').addEventListener('click', backToLogin);
+  onEl('btn-admin-download', 'click', adminDownloadCSV);
+  onEl('btn-admin-download-xlsx', 'click', typeof adminDownloadXlsx === 'function' ? adminDownloadXlsx : () => {});
+  onEl('btn-jump-unanswered', 'click', jumpToUnanswered);
+  onEl('btn-jump-last', 'click', jumpToLast);
+  onEl('btn-back-home', 'click', backToLogin);
 }
+
 
 function showPracticeLogin() {
   if (!selectedPack) {
@@ -1404,16 +1417,35 @@ function openAdminPanel(admin) {
 
 // patch enterAdmin for main via config password
 const _enterAdminOrig = enterAdmin;
-enterAdmin = function() {
-  const pass = document.getElementById('admin-password').value.trim();
-  if (pass !== (config.adminPassword || '')) {
-    alert('Password admin salah.');
-    return;
+enterAdmin = async function() {
+  const pass = ((document.getElementById('admin-password') || {}).value || '').trim();
+  if (!pass) { alert('Isi password admin.'); return; }
+  try {
+    // Utama: akun di database (username main / admin)
+    if (window.SHSupabase && SHSupabase.sbEnabled() && typeof SHSupabase.loginSecondary === 'function') {
+      try {
+        const admin = await SHSupabase.loginSecondary('main', pass);
+        openAdminPanel(admin);
+        return;
+      } catch (_) {
+        // coba username admin
+        try {
+          const admin2 = await SHSupabase.loginSecondary('admin', pass);
+          openAdminPanel(admin2);
+          return;
+        } catch (e2) { /* fallback */ }
+      }
+    }
+    // Cadangan: hanya jika config lokal masih punya adminPassword (jangan di repo publik)
+    const expected = (window.__CBT_CONFIG__ || window.config || config || {}).adminPassword || '';
+    if (expected && pass === String(expected).trim()) {
+      openAdminPanel({ username: 'main', role: 'main', display_name: 'Admin Utama' });
+      return;
+    }
+    alert('Password admin salah atau akun main belum dibuat di database (tabel cbt_admins).');
+  } catch (e) {
+    alert(e.message || 'Login gagal');
   }
-  if (window.SHSupabase) {
-    SHSupabase.setCurrentAdmin({ username: 'main', role: 'main' });
-  }
-  openAdminPanel({ username: 'main', role: 'main' });
 };
 
 
