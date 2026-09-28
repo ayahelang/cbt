@@ -58,28 +58,44 @@ let cheatLog = [];
 const APP_BOOTSTRAP_URL = 'https://edaujcxmncoslykyddwf.supabase.co/functions/v1/app-config';
 
 async function loadAppConfig() {
-  // 1) Coba Edge Function (sumber utama, tanpa file config.json di repo)
+  let edge = null;
+  let local = null;
+  // 1) Edge Function (disarankan)
   try {
     const res = await fetch(APP_BOOTSTRAP_URL, {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
       cache: 'no-store'
     });
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.supabaseUrl && data.supabaseAnonKey) return data;
-    }
+    if (res.ok) edge = await res.json();
   } catch (e) {
     console.warn('bootstrap edge:', e);
   }
-  // 2) Cadangan lokal (opsional) — boleh dihapus dari repo setelah edge aktif
+  // 2) config.json lokal (cadangan / masa transisi)
   try {
     const res = await fetch('config.json', { cache: 'no-store' });
-    if (res.ok) return await res.json();
+    if (res.ok) local = await res.json();
   } catch (e) {
     console.warn('config.json cadangan:', e);
   }
-  throw new Error('Tidak bisa memuat konfigurasi aplikasi (edge app-config / config.json).');
+  if (edge && edge.supabaseUrl && edge.supabaseAnonKey) {
+    // Gabungkan: edge untuk koneksi DB; local boleh menambah adminPassword HANYA untuk transisi
+    const merged = Object.assign({}, local || {}, edge);
+    // password dari local hanya jika edge tidak mengirim (seharusnya tidak pernah)
+    if (local && local.adminPassword && !merged.adminPassword) {
+      merged.adminPassword = local.adminPassword;
+    }
+    if (local && local.passwords && !merged.passwords) merged.passwords = local.passwords;
+    if (local && local.practicePassword && !merged.practicePassword) {
+      merged.practicePassword = local.practicePassword;
+    }
+    if (local && local.googleScriptUrl && !merged.googleScriptUrl) {
+      merged.googleScriptUrl = local.googleScriptUrl;
+    }
+    return merged;
+  }
+  if (local && local.supabaseUrl && local.supabaseAnonKey) return local;
+  throw new Error('Tidak bisa memuat konfigurasi (deploy function app-config ATAU isi supabaseUrl+supabaseAnonKey di config.json).');
 }
 
 function examProgressKey() {
@@ -1458,39 +1474,47 @@ async function loadHasilFilterTree() {
   const st = document.getElementById('admin-status');
   if (!box) return;
   box.innerHTML = '<p class="hint">Memuat opsi filter...</p>';
+  const isUuid = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(s || '').trim());
   try {
     if (!window.SHSupabase || !SHSupabase.sbEnabled()) {
       box.innerHTML = '<p class="hint">Database belum siap — filter terbatas.</p>';
       return;
     }
-    // Opsi dari master kelas (produk CBT) + dari hasil yang sudah ada
     const classes = await SHSupabase.listAllClassesAdmin();
+    const byId = {};
+    (classes || []).forEach(c => { byId[c.id] = c; });
+
     let resultRows = [];
     try { resultRows = await SHSupabase.listResults() || []; } catch (_) {}
-    window.__adminResultsRaw = (resultRows || []).map(r => ({
-      timestamp: r.created_at || r.finished_at || '',
-      name: r.student_name || r.name || '',
-      class: r.student_class || r.class || '',
-      institution: r.institution || '',
-      packId: r.pack_id || r.packId || '',
-      packTitle: r.pack_title || r.packTitle || '',
-      score: r.score,
-      total: r.total,
-      percent: r.percent,
-      essayScore: r.essay_score != null ? r.essay_score : r.essayScore,
-      essayScoreMax: r.essay_score_max != null ? r.essay_score_max : r.essayScoreMax,
-      essays: r.essays || [],
-      mcAnswers: r.mc_answers || r.mcAnswers || [],
-      tabSwitchCount: r.tab_switch_count || r.tabSwitchCount || 0,
-      cheatLog: r.cheat_log || r.cheatLog || [],
-      startedAt: r.started_at || r.startedAt || '',
-      finishedAt: r.finished_at || r.finishedAt || r.created_at || '',
-      timeUsedSeconds: r.time_used_seconds != null ? r.time_used_seconds : r.timeUsedSeconds,
-      _source: 'supabase',
-      _id: r.id
-    }));
+    window.__adminResultsRaw = (resultRows || []).map(r => {
+      let cls = r.student_class || r.class || '';
+      let inst = r.institution || '';
+      // Resolve UUID class_id tersimpan di student_class
+      if (isUuid(cls) && byId[cls]) {
+        inst = inst || byId[cls].institution || '';
+        cls = byId[cls].name || cls;
+      }
+      return {
+        timestamp: r.created_at || '',
+        name: r.student_name || '',
+        class: cls,
+        institution: inst,
+        packId: r.pack_id || '',
+        packTitle: r.pack_title || '',
+        score: r.score,
+        total: r.total,
+        percent: r.percent,
+        essayScore: r.essay_score != null ? r.essay_score : null,
+        essayScoreMax: r.essay_score_max != null ? r.essay_score_max : null,
+        essays: r.essays || [],
+        mcAnswers: r.mc_answers || [],
+        tabSwitchCount: r.tab_switch_count || 0,
+        timeUsedSeconds: r.time_used_seconds,
+        _source: 'supabase',
+        _id: r.id
+      };
+    });
 
-    // isi dropdown paket dari hasil + catalog
     const packSel = document.getElementById('admin-pack-filter');
     if (packSel) {
       const cur = packSel.value;
@@ -1507,37 +1531,51 @@ async function loadHasilFilterTree() {
       if (cur) packSel.value = cur;
     }
 
-    // bangun pohon: institution -> class name -> students
-    const tree = new Map(); // inst -> Map(className -> Set names)
-    async function ensureClass(inst, className, classId) {
-      const i = inst || '(Tanpa instansi)';
+    // Pohon HANYA dari master kelas ber-nama (bukan UUID) + hasil yang sudah di-resolve
+    const tree = new Map();
+    function ensure(inst, className) {
+      const i = (inst && String(inst).trim()) ? String(inst).trim() : null;
+      if (!i || isUuid(i)) return null; // jangan buat node "Tanpa instansi" / UUID
+      if (!className || isUuid(className)) return null;
       if (!tree.has(i)) tree.set(i, new Map());
       const cm = tree.get(i);
       if (!cm.has(className)) cm.set(className, new Set());
       return cm.get(className);
     }
     for (const c of (classes || [])) {
-      const set = await ensureClass(c.institution || '', c.name, c.id);
+      const inst = (c.institution || '').trim();
+      const name = (c.name || '').trim();
+      if (!inst || isUuid(inst) || !name || isUuid(name)) continue;
+      const set = ensure(inst, name);
+      if (!set) continue;
       try {
         const mems = await SHSupabase.listClassMembers(c.id);
-        (mems || []).forEach(m => set.add(m.display_name || m.participant_name));
+        (mems || []).forEach(m => {
+          const nm = (m.display_name || m.participant_name || '').trim();
+          if (nm && !isUuid(nm)) set.add(nm);
+        });
       } catch (_) {}
     }
     window.__adminResultsRaw.forEach(r => {
-      const inst = r.institution || '(Tanpa instansi)';
-      const cls = r.class || '(Tanpa kelas)';
-      if (!tree.has(inst)) tree.set(inst, new Map());
-      const cm = tree.get(inst);
-      if (!cm.has(cls)) cm.set(cls, new Set());
-      if (r.name) cm.get(cls).add(r.name);
+      const set = ensure(r.institution, r.class);
+      if (set && r.name && !isUuid(r.name)) set.add(r.name);
     });
 
     box.innerHTML = '';
     if (!tree.size) {
-      box.innerHTML = '<p class="hint">Belum ada data sekolah/kelas. Isi di Kelola Peserta atau tunggu ada hasil ujian.</p>';
+      box.innerHTML = '<p class="hint">Belum ada data sekolah/kelas bernama. Isi di Kelola Peserta.</p>';
       window.__hasilFilterReady = true;
       return;
     }
+
+    function syncParentState(parentCb, childCbs) {
+      const list = [...childCbs];
+      if (!list.length) return;
+      const n = list.filter(c => c.checked).length;
+      parentCb.checked = n === list.length;
+      parentCb.indeterminate = n > 0 && n < list.length;
+    }
+
     [...tree.keys()].sort((a,b) => a.localeCompare(b, 'id')).forEach(inst => {
       const schoolWrap = document.createElement('div');
       schoolWrap.className = 'ft-node';
@@ -1545,40 +1583,43 @@ async function loadHasilFilterTree() {
       schoolHead.className = 'ft-school';
       const tog = document.createElement('span');
       tog.className = 'ft-toggle';
-      tog.textContent = '▶';
+      tog.textContent = '▼';
       const cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.dataset.role = 'inst';
       cb.dataset.inst = inst;
       const lab = document.createElement('label');
       lab.textContent = inst;
-      schoolHead.appendChild(tog);
       schoolHead.appendChild(cb);
       schoolHead.appendChild(lab);
+      schoolHead.appendChild(tog);
       const children = document.createElement('div');
       children.className = 'ft-children';
-      children.style.display = 'none';
+      children.style.display = 'block';
       const classMap = tree.get(inst);
+      const classCbs = [];
       [...classMap.keys()].sort((a,b) => a.localeCompare(b, 'id')).forEach(cls => {
         const classWrap = document.createElement('div');
         const classHead = document.createElement('div');
         classHead.className = 'ft-class';
         const tog2 = document.createElement('span');
         tog2.className = 'ft-toggle';
-        tog2.textContent = '▶';
+        tog2.textContent = '▼';
         const cb2 = document.createElement('input');
         cb2.type = 'checkbox';
         cb2.dataset.role = 'class';
         cb2.dataset.inst = inst;
         cb2.dataset.class = cls;
+        classCbs.push(cb2);
         const lab2 = document.createElement('label');
         lab2.textContent = cls;
-        classHead.appendChild(tog2);
         classHead.appendChild(cb2);
         classHead.appendChild(lab2);
+        classHead.appendChild(tog2);
         const studChildren = document.createElement('div');
         studChildren.className = 'ft-children';
-        studChildren.style.display = 'none';
+        studChildren.style.display = 'block';
+        const studCbs = [];
         [...classMap.get(cls)].sort((a,b) => a.localeCompare(b, 'id')).forEach(name => {
           const row = document.createElement('div');
           row.className = 'ft-student';
@@ -1588,11 +1629,16 @@ async function loadHasilFilterTree() {
           cb3.dataset.inst = inst;
           cb3.dataset.class = cls;
           cb3.dataset.name = name;
+          studCbs.push(cb3);
           const lab3 = document.createElement('label');
           lab3.textContent = name;
           row.appendChild(cb3);
           row.appendChild(lab3);
           studChildren.appendChild(row);
+          cb3.addEventListener('change', () => {
+            syncParentState(cb2, studCbs);
+            syncParentState(cb, classCbs);
+          });
         });
         tog2.onclick = (e) => {
           e.preventDefault();
@@ -1601,7 +1647,9 @@ async function loadHasilFilterTree() {
           tog2.textContent = open ? '▶' : '▼';
         };
         cb2.addEventListener('change', () => {
-          studChildren.querySelectorAll('input[type=checkbox]').forEach(c => { c.checked = cb2.checked; });
+          studCbs.forEach(c => { c.checked = cb2.checked; c.indeterminate = false; });
+          cb2.indeterminate = false;
+          syncParentState(cb, classCbs);
         });
         classWrap.appendChild(classHead);
         classWrap.appendChild(studChildren);
@@ -1614,7 +1662,11 @@ async function loadHasilFilterTree() {
         tog.textContent = open ? '▶' : '▼';
       };
       cb.addEventListener('change', () => {
-        children.querySelectorAll('input[type=checkbox]').forEach(c => { c.checked = cb.checked; });
+        children.querySelectorAll('input[type=checkbox]').forEach(c => {
+          c.checked = cb.checked;
+          c.indeterminate = false;
+        });
+        cb.indeterminate = false;
       });
       schoolWrap.appendChild(schoolHead);
       schoolWrap.appendChild(children);
@@ -1627,6 +1679,7 @@ async function loadHasilFilterTree() {
     box.innerHTML = '<p class="hint">Gagal muat filter: ' + (e.message || e) + '</p>';
   }
 }
+
 
 function getHasilFilterSelection() {
   const box = document.getElementById('hasil-filter-tree');
@@ -2324,6 +2377,7 @@ async function selectManagePack(p) {
   if (aclSec) aclSec.style.display = canGrant ? 'block' : 'none';
   await renderMpCheckboxTree(p.id);
   await refreshMpPasswords(p.id);
+  loadMpPasswordScopeLists().catch(()=>{});
   if (canGrant) await refreshMpAcl(p.id);
 }
 async function refreshMpParticipants(packId) {
@@ -2574,81 +2628,118 @@ async function refreshMasterClasses() {
   if (!list) return;
   list.innerHTML = '';
   try {
-    if (!(await SHSupabase.canManageMasterRoster())) {
-      st.textContent = 'Anda belum punya hak kelola data peserta (perlu jadi pembuat paket atau diberi hak).';
-      return;
-    }
     const rows = await SHSupabase.listAllClassesAdmin();
-    st.textContent = (rows || []).length + ' kelas.';
+    const nameList = document.getElementById('mc-name-list');
+    const instList = document.getElementById('mc-inst-list');
+    if (nameList) nameList.innerHTML = '';
+    if (instList) instList.innerHTML = '';
+    const names = new Set();
+    const insts = new Set();
+    const selectedId = (document.getElementById('mc-selected-class-id') || {}).value || '';
     (rows || []).forEach(c => {
+      if (c.name) names.add(c.name);
+      if (c.institution) insts.add(c.institution);
       const div = document.createElement('div');
-      div.className = 'admin-row';
-      div.innerHTML = '<div class="info" style="flex:1;cursor:pointer"><strong>' + escapeHtml(c.name) +
-        '</strong><br><small>' + escapeHtml(c.institution || '-') + '</small></div>';
-      div.querySelector('.info').onclick = () => {
-        document.getElementById('mc-selected-class-id').value = c.id;
-        document.getElementById('mc-selected-label').textContent = 'Kelas: ' + c.name + (c.institution ? ' · ' + c.institution : '');
+      div.className = 'admin-row mc-class-row' + (selectedId === c.id ? ' selected' : '');
+      div.dataset.classId = c.id;
+      div.innerHTML =
+        '<div class="info"><strong>' + escapeHtml(c.name || '') + '</strong>' +
+        (c.institution ? '<br><small>' + escapeHtml(c.institution) + '</small>' : '') +
+        '</div>' +
+        '<button type="button" class="btn-del mc-cls-del">Hapus</button>';
+      div.querySelector('.info').addEventListener('click', () => {
+        document.querySelectorAll('#mc-class-list .mc-class-row').forEach(r => r.classList.remove('selected'));
+        div.classList.add('selected');
+        const hid = document.getElementById('mc-selected-class-id');
+        if (hid) hid.value = c.id;
+        const lab = document.getElementById('mc-selected-label');
+        if (lab) lab.textContent = 'Kelas: ' + (c.name || '') + (c.institution ? ' · ' + c.institution : '');
         refreshMasterMembers(c.id);
-      };
-      const bEdit = document.createElement('button');
-      bEdit.type = 'button'; bEdit.className = 'btn-del'; bEdit.textContent = 'Edit';
-      bEdit.onclick = async () => {
-        const n = prompt('Nama kelas', c.name);
-        if (n === null) return;
-        const ins = prompt('Instansi', c.institution || '');
-        if (ins === null) return;
-        try { await SHSupabase.updateClass(c.id, n, ins); refreshMasterClasses(); }
-        catch (e) { alert(e.message); }
-      };
-      const bDel = document.createElement('button');
-      bDel.type = 'button'; bDel.className = 'btn-del'; bDel.textContent = 'Hapus';
-      bDel.onclick = async () => {
-        if (!confirm('Hapus kelas dan seluruh anggotanya?')) return;
-        try { await SHSupabase.deleteClass(c.id); refreshMasterClasses(); }
-        catch (e) { alert(e.message); }
-      };
-      div.appendChild(bEdit);
-      div.appendChild(bDel);
+      });
+      div.querySelector('.mc-cls-del').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (!confirm('Hapus kelas dan semua anggotanya?')) return;
+        try {
+          await SHSupabase.deleteClass(c.id);
+          refreshMasterClasses();
+        } catch (err) { alert(err.message || err); }
+      });
       list.appendChild(div);
     });
+    names.forEach(n => {
+      const o = document.createElement('option'); o.value = n;
+      if (nameList) nameList.appendChild(o);
+    });
+    insts.forEach(n => {
+      const o = document.createElement('option'); o.value = n;
+      if (instList) instList.appendChild(o);
+    });
+    if (st) st.textContent = (rows || []).length + ' kelas.';
   } catch (e) {
-    st.textContent = e.message;
+    if (st) st.textContent = e.message || 'Gagal muat kelas';
   }
 }
+
 
 async function refreshMasterMembers(classId) {
   const list = document.getElementById('mc-member-list');
   const st = document.getElementById('mc-member-status');
+  if (!list) return;
   list.innerHTML = '';
+  if (!classId) {
+    if (st) st.textContent = 'Pilih kelas dulu.';
+    return;
+  }
   try {
     const rows = await SHSupabase.listClassMembers(classId);
-    st.textContent = (rows || []).length + ' peserta.';
+    // toolbar multi-hapus
+    const bar = document.createElement('div');
+    bar.className = 'mc-member-toolbar';
+    bar.innerHTML =
+      '<label class="mc-check-all"><input type="checkbox" id="mc-mem-check-all" /> Centang semua</label>' +
+      '<button type="button" class="btn btn-secondary" id="btn-mc-del-selected">Hapus terpilih</button>';
+    list.appendChild(bar);
+    document.getElementById('mc-mem-check-all').addEventListener('change', (e) => {
+      list.querySelectorAll('.mc-mem-cb').forEach(c => { c.checked = e.target.checked; });
+    });
+    document.getElementById('btn-mc-del-selected').addEventListener('click', async () => {
+      const ids = [...list.querySelectorAll('.mc-mem-cb:checked')].map(c => c.dataset.id);
+      if (!ids.length) { alert('Centang peserta yang akan dihapus.'); return; }
+      if (!confirm('Hapus ' + ids.length + ' peserta terpilih?')) return;
+      try {
+        for (const id of ids) await SHSupabase.deleteClassMember(id);
+        refreshMasterMembers(classId);
+      } catch (err) { alert(err.message || err); }
+    });
     (rows || []).forEach(m => {
       const div = document.createElement('div');
-      div.className = 'admin-row';
-      div.innerHTML = '<div class="info" style="flex:1"><strong>' + escapeHtml(m.display_name || m.participant_name) +
-        '</strong><br><small>' + escapeHtml(m.participant_name) + '</small></div>';
-      const b1 = document.createElement('button');
-      b1.type = 'button'; b1.className = 'btn-del'; b1.textContent = 'Edit';
-      b1.onclick = async () => {
-        const n = prompt('Nama peserta', m.participant_name);
-        if (n === null) return;
-        const d = prompt('Nama tampilan', m.display_name || m.participant_name);
-        if (d === null) return;
-        try { await SHSupabase.updateClassMember(m.id, n, d); refreshMasterMembers(classId); }
-        catch (e) { alert(e.message); }
-      };
-      const b2 = document.createElement('button');
-      b2.type = 'button'; b2.className = 'btn-del'; b2.textContent = 'Hapus';
-      b2.onclick = async () => {
-        if (!confirm('Hapus peserta ini dari kelas?')) return;
-        try { await SHSupabase.deleteClassMember(m.id); refreshMasterMembers(classId); }
-        catch (e) { alert(e.message); }
-      };
-      div.appendChild(b1); div.appendChild(b2); list.appendChild(div);
+      div.className = 'admin-row mc-member-row';
+      div.innerHTML =
+        '<label class="mc-mem-pick"><input type="checkbox" class="mc-mem-cb" data-id="' + m.id + '" />' +
+        '<span class="info"><strong>' + escapeHtml(m.participant_name || '') + '</strong>' +
+        (m.display_name && m.display_name !== m.participant_name
+          ? '<br><small>' + escapeHtml(m.display_name) + '</small>' : '') +
+        '</span></label>' +
+        '<button type="button" class="btn-del">Hapus</button>';
+      div.querySelector('.info').addEventListener('click', (e) => {
+        // toggle highlight
+        div.classList.toggle('selected');
+      });
+      div.querySelector('.btn-del').addEventListener('click', async () => {
+        if (!confirm('Hapus peserta ini?')) return;
+        try {
+          await SHSupabase.deleteClassMember(m.id);
+          refreshMasterMembers(classId);
+        } catch (err) { alert(err.message || err); }
+      });
+      list.appendChild(div);
     });
-  } catch (e) { st.textContent = e.message; }
+    if (st) st.textContent = (rows || []).length + ' peserta.';
+  } catch (e) {
+    if (st) st.textContent = e.message || 'Gagal muat peserta';
+  }
 }
+
 
 async function onMcAddClass() {
   const st = document.getElementById('mc-status');
@@ -2733,28 +2824,72 @@ async function onMpAddPassword() {
   if (!id) { st.textContent = 'Pilih paket dulu.'; return; }
   const plain = document.getElementById('mp-pw-plain').value;
   const label = document.getElementById('mp-pw-label').value.trim();
-  const expLocal = document.getElementById('mp-pw-expires').value;
-  const dur = document.getElementById('mp-pw-duration').value;
+  const validFromLocal = (document.getElementById('mp-pw-valid-from') || {}).value || '';
+  const expLocal = (document.getElementById('mp-pw-expires') || {}).value || '';
+  const dur = (document.getElementById('mp-pw-duration') || {}).value || '';
+  const inst = (document.getElementById('mp-pw-inst') || {}).value || '';
+  const cls = (document.getElementById('mp-pw-class') || {}).value || '';
+  const usersRaw = (document.getElementById('mp-pw-users') || {}).value || '';
   try {
-    let expiresAt = null;
-    if (expLocal) {
-      expiresAt = new Date(expLocal).toISOString();
+    let validFrom = validFromLocal ? new Date(validFromLocal).toISOString() : null;
+    let expiresAt = expLocal ? new Date(expLocal).toISOString() : null;
+    const durationMinutes = dur ? parseInt(dur, 10) : null;
+    // Durasi: sejak valid_from jika diisi, else sejak sekarang (waktu seting)
+    if (!expiresAt && durationMinutes && durationMinutes > 0) {
+      const base = validFrom ? new Date(validFrom).getTime() : Date.now();
+      expiresAt = new Date(base + durationMinutes * 60 * 1000).toISOString();
     }
+    const scopeUsers = usersRaw.split(',').map(s => s.trim()).filter(Boolean);
     await SHSupabase.addPackPassword(id, plain, {
       label,
+      validFrom,
       expiresAt,
-      durationMinutes: dur ? parseInt(dur, 10) : null
+      durationMinutes,
+      scopeInstitution: inst.trim() || null,
+      scopeClass: cls.trim() || null,
+      scopeUsers
     });
-    document.getElementById('mp-pw-plain').value = '';
-    document.getElementById('mp-pw-label').value = '';
-    document.getElementById('mp-pw-expires').value = '';
-    document.getElementById('mp-pw-duration').value = '';
+    ['mp-pw-plain','mp-pw-label','mp-pw-valid-from','mp-pw-expires','mp-pw-duration','mp-pw-inst','mp-pw-class','mp-pw-users'].forEach(i => {
+      const el = document.getElementById(i); if (el) el.value = '';
+    });
     st.textContent = 'Password ditambahkan.';
     refreshMpPasswords(id);
   } catch (e) {
     st.textContent = e.message;
   }
 }
+
+/** Isi datalist sekolah/kelas/peserta dari database untuk form password */
+async function loadMpPasswordScopeLists() {
+  try {
+    if (!window.SHSupabase || !SHSupabase.sbEnabled()) return;
+    const classes = await SHSupabase.listAllClassesAdmin();
+    const instList = document.getElementById('mc-inst-list');
+    const nameList = document.getElementById('mc-name-list');
+    const memList = document.getElementById('mc-member-name-list');
+    if (instList) instList.innerHTML = '';
+    if (nameList) nameList.innerHTML = '';
+    if (memList) memList.innerHTML = '';
+    const insts = new Set();
+    const names = new Set();
+    const members = new Set();
+    for (const c of (classes || [])) {
+      if (c.institution) insts.add(c.institution);
+      if (c.name) names.add(c.name);
+      try {
+        const mems = await SHSupabase.listClassMembers(c.id);
+        (mems || []).forEach(m => {
+          const n = m.display_name || m.participant_name;
+          if (n) members.add(n);
+        });
+      } catch (_) {}
+    }
+    insts.forEach(v => { const o = document.createElement('option'); o.value = v; if (instList) instList.appendChild(o); });
+    names.forEach(v => { const o = document.createElement('option'); o.value = v; if (nameList) nameList.appendChild(o); });
+    members.forEach(v => { const o = document.createElement('option'); o.value = v; if (memList) memList.appendChild(o); });
+  } catch (e) { console.warn(e); }
+}
+
 
 
 async function onMcImportLegacy() {

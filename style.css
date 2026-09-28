@@ -1013,3 +1013,78 @@ input[type="checkbox"].cb-class-none {
   .hasil-filter-tree { max-height: 240px; }
   .result-card .result-main { flex-direction: column; }
 }
+
+/* Collapsible: panah di kanan */
+details.admin-fold {
+  border: 1px solid rgba(148,163,184,0.22);
+  border-radius: 12px;
+  margin: 10px 0;
+  padding: 0;
+  background: rgba(15,23,42,0.25);
+  overflow: hidden;
+}
+details.admin-fold > summary.admin-fold-title {
+  list-style: none;
+  cursor: pointer;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+details.admin-fold > summary.admin-fold-title::-webkit-details-marker { display: none; }
+details.admin-fold > summary.admin-fold-title::after {
+  content: "▶";
+  color: #22d3ee;
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+details.admin-fold[open] > summary.admin-fold-title::after {
+  content: "▼";
+}
+details.admin-fold > .admin-fold-body {
+  padding: 4px 14px 14px;
+  border-top: 1px solid rgba(148,163,184,0.15);
+}
+/* Filter tree parent indeterminate (abu) */
+.hasil-filter-tree input[type="checkbox"]:indeterminate {
+  accent-color: #94a3b8;
+  opacity: 0.85;
+}
+.hasil-filter-tree .ft-school,
+.hasil-filter-tree .ft-class {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.hasil-filter-tree .ft-toggle {
+  margin-left: auto;
+}
+/* Master peserta highlight */
+#mc-class-list .mc-class-row:hover,
+#mc-member-list .mc-member-row:hover {
+  background: rgba(34, 211, 238, 0.08);
+  outline: 1px solid rgba(34, 211, 238, 0.25);
+}
+#mc-class-list .mc-class-row.selected,
+#mc-member-list .mc-member-row.selected {
+  background: rgba(34, 211, 238, 0.14);
+  outline: 2px solid #22d3ee;
+}
+.mc-member-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+  width: 100%;
+}
+.mc-mem-pick {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex: 1;
+  cursor: pointer;
+}

@@ -878,7 +878,11 @@
 
   function isPackPasswordValid(row) {
     if (!row || row.active === false) return false;
-    const exp = resolvePasswordExpiry(row.expires_at, row.duration_minutes, row.created_at);
+    if (row.valid_from) {
+      const vf = new Date(row.valid_from);
+      if (!isNaN(vf.getTime()) && vf.getTime() > Date.now()) return false;
+    }
+    const exp = resolvePasswordExpiry(row.expires_at, row.duration_minutes, row.valid_from || row.created_at);
     if (exp && exp.getTime() < Date.now()) return false;
     return true;
   }
@@ -894,23 +898,31 @@
     if (!(perm.is_owner || isMainAdmin() || perm.can_edit_items || perm.can_manage_participants || perm.can_rename)) {
       throw new Error('Tidak punya hak mengatur password paket');
     }
+    let validFrom = opts.validFrom || null;
     let expiresAt = opts.expiresAt || null;
     const durationMinutes = opts.durationMinutes ? Number(opts.durationMinutes) : null;
+    // Durasi dihitung sejak valid_from (jika ada) atau sejak sekarang
     if (!expiresAt && durationMinutes && durationMinutes > 0) {
-      expiresAt = new Date(Date.now() + durationMinutes * 60 * 1000).toISOString();
+      const base = validFrom ? new Date(validFrom).getTime() : Date.now();
+      expiresAt = new Date(base + durationMinutes * 60 * 1000).toISOString();
     }
     const hash = await sha256(String(plainPassword).trim());
+    const body = {
+      pack_id: packId,
+      label: String(opts.label || '').trim(),
+      password_hash: hash,
+      valid_from: validFrom,
+      expires_at: expiresAt,
+      duration_minutes: durationMinutes || null,
+      scope_institution: opts.scopeInstitution || null,
+      scope_class: opts.scopeClass || null,
+      scope_users: Array.isArray(opts.scopeUsers) ? opts.scopeUsers : [],
+      active: true,
+      created_by: currentAdmin.username || ''
+    };
     await sbFetch('cbt_pack_passwords', {
       method: 'POST',
-      body: JSON.stringify({
-        pack_id: packId,
-        label: String(opts.label || '').trim(),
-        password_hash: hash,
-        expires_at: expiresAt,
-        duration_minutes: durationMinutes || null,
-        active: true,
-        created_by: currentAdmin.username || ''
-      })
+      body: JSON.stringify(body)
     });
   }
 
