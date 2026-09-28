@@ -282,11 +282,13 @@
                 <div class="form-group"><label>Berlaku mulai (opsional)</label><input type="datetime-local" id="mp-pw-valid-from" /></div>
                 <div class="form-group"><label>Berlaku sampai (opsional)</label><input type="datetime-local" id="mp-pw-expires" /></div>
                 <div class="form-group"><label>Atau durasi menit sejak dibuat (opsional)</label><input type="number" id="mp-pw-duration" min="1" placeholder="Contoh: 120" /></div>
-                <details class="admin-fold"><summary class="admin-fold-title">Batasi ke sekolah / kelas / peserta (opsional)</summary>
+                <details class="admin-fold" id="mp-pw-scope-fold"><summary class="admin-fold-title">Batasi ke sekolah / kelas / peserta (opsional)</summary>
                 <div class="admin-fold-body">
-                  <div class="form-group"><label>Sekolah/instansi</label><input type="text" id="mp-pw-inst" list="mc-inst-list" placeholder="Kosong = semua" /></div>
-                  <div class="form-group"><label>Kelas (nama)</label><input type="text" id="mp-pw-class" list="mc-name-list" placeholder="Kosong = semua" /></div>
-                  <div class="form-group"><label>Peserta (nama, koma)</label><input type="text" id="mp-pw-users" list="mc-member-name-list" placeholder="Kosong = semua di kelas" /></div>
+                  <p class="hint">Centang di tree. Kosong = berlaku untuk semua.</p>
+                  <div id="mp-pw-scope-tree" class="mp-checkbox-tree"></div>
+                  <input type="hidden" id="mp-pw-inst" />
+                  <input type="hidden" id="mp-pw-class" />
+                  <input type="hidden" id="mp-pw-users" />
                 </div></details>
                 <button id="btn-mp-add-pw" class="btn btn-primary" style="width:100%;margin-bottom:8px">Tambah Password</button>
                 <div id="mp-pw-list" class="admin-list"></div>

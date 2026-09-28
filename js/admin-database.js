@@ -236,6 +236,14 @@
     return await sbFetch('cbt_results?select=*&order=created_at.desc&limit=2000');
   }
 
+  async function listAnswerItems(resultId) {
+    if (!sbEnabled() || !resultId) return [];
+    return await sbFetch(
+      'cbt_answer_items?result_id=eq.' + encodeURIComponent(resultId) +
+      '&select=*&order=question_id.asc'
+    );
+  }
+
   async function uploadPack(pack) {
     if (!sbEnabled()) throw new Error('Supabase belum dikonfigurasi');
     if (!currentAdmin) throw new Error('Belum login admin');
@@ -1097,6 +1105,7 @@
     deleteResult,
     deleteResultsByStudent,
     listResults,
+    listAnswerItems,
     updateResult,
     uploadPack,
     listRemotePacks,

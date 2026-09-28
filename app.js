@@ -1736,69 +1736,91 @@ function renderAdminListClean(rows) {
   const list = document.getElementById('admin-list');
   if (!list) return;
   list.innerHTML = '';
+  const isUuid = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(s||'').trim());
   (rows || []).forEach(row => {
-    const div = document.createElement('div');
-    div.className = 'admin-row';
+    let cls = row.class || '—';
+    if (isUuid(cls) && row.classLabel) cls = row.classLabel;
+    if (isUuid(cls)) cls = '—';
     const packLabel = row.packTitle || row.packId || '—';
-    const cls = row.class || '—';
     const name = row.name || '—';
     const score = row.score != null ? row.score : '—';
     const total = row.total != null ? row.total : '—';
     const pct = row.percent != null ? row.percent + '%' : '';
-    const es = row.essayScore != null ? row.essayScore : null;
-    const esMax = row.essayScoreMax != null ? row.essayScoreMax : '';
+    let essayBit = '';
+    if (row.essayScore != null) {
+      essayBit = ' · E ' + row.essayScore + (row.essayScoreMax != null ? '/' + row.essayScoreMax : '');
+    } else if (row.essays && row.essays.length) {
+      const scored = row.essays.filter(e => e && e.score != null);
+      if (scored.length) {
+        const sum = scored.reduce((a,e) => a + Number(e.score || 0), 0);
+        essayBit = ' · E ' + sum;
+      } else {
+        essayBit = ' · E —';
+      }
+    }
+    const div = document.createElement('div');
+    div.className = 'admin-row result-row-compact';
     div.innerHTML =
-      '<div class="result-card">' +
-      '<div class="result-main">' +
-      '<div class="info"><strong>' + escapeHtml(name) + '</strong>' +
-      '<br><small>Kelas: ' + escapeHtml(cls) + '</small>' +
-      '<br><small>Paket: ' + escapeHtml(packLabel) + '</small></div>' +
-      '<div class="score">PG ' + score + '/' + total + (pct ? ' (' + pct + ')' : '') +
-      (es != null ? '<br>Essay ' + es + (esMax !== '' ? '/' + esMax : '') : '') +
-      '</div></div>' +
-      '<div class="result-actions">' +
-      '<button type="button" class="btn btn-secondary btn-pg-det">Detail PG</button>' +
-      '<button type="button" class="btn btn-secondary btn-es-det">Detail Essay</button>' +
-      '<button type="button" class="btn-del">Hapus</button>' +
+      '<div class="result-line">' +
+      '<button type="button" class="result-expand-btn" title="Detail">▶</button>' +
+      '<div class="result-line-main">' +
+      '<strong>' + escapeHtml(name) + '</strong>' +
+      '<span class="result-meta">' + escapeHtml(cls) + ' · ' + escapeHtml(packLabel) + '</span>' +
       '</div>' +
-      '<div class="result-detail result-pg" style="display:none"></div>' +
-      '<div class="result-detail result-es" style="display:none"></div>' +
+      '<div class="result-line-score">PG ' + score + '/' + total + (pct ? ' (' + pct + ')' : '') + essayBit + '</div>' +
+      '<button type="button" class="btn-del result-del">Hapus</button>' +
+      '</div>' +
+      '<div class="result-detail-panel" style="display:none">' +
+      '<div class="result-detail result-pg"></div>' +
+      '<div class="result-detail result-es"></div>' +
       '</div>';
-    const pgBtn = div.querySelector('.btn-pg-det');
-    const esBtn = div.querySelector('.btn-es-det');
+    const expBtn = div.querySelector('.result-expand-btn');
+    const panel = div.querySelector('.result-detail-panel');
     const pgBox = div.querySelector('.result-pg');
     const esBox = div.querySelector('.result-es');
-    pgBtn.onclick = () => {
-      const open = pgBox.style.display !== 'none';
-      pgBox.style.display = open ? 'none' : 'block';
-      if (!open) {
-        const mc = row.mcAnswers || [];
-        pgBox.innerHTML = mc.length
+    let loaded = false;
+    expBtn.onclick = async () => {
+      const open = panel.style.display !== 'none';
+      panel.style.display = open ? 'none' : 'block';
+      expBtn.textContent = open ? '▶' : '▼';
+      if (open || loaded) return;
+      loaded = true;
+      pgBox.innerHTML = '<small>Memuat detail PG...</small>';
+      esBox.innerHTML = '';
+      try {
+        let mc = row.mcAnswers || [];
+        if ((!mc || !mc.length) && row._id && window.SHSupabase && SHSupabase.listAnswerItems) {
+          const items = await SHSupabase.listAnswerItems(row._id);
+          mc = (items || []).map(it => ({
+            question: it.question_text,
+            userAnswer: it.selected_answer,
+            correctAnswer: it.correct_answer,
+            isCorrect: it.is_correct
+          }));
+        }
+        pgBox.innerHTML = '<strong>Detail PG</strong>' + (mc.length
           ? mc.map((m,i) => '<details><summary>PG ' + (i+1) + ' · ' + (m.isCorrect ? 'Benar' : 'Salah') + '</summary>' +
               '<div>Soal: ' + escapeHtml(m.question||'') + '<br>Jawaban: ' + escapeHtml(m.userAnswer||'') +
               '<br>Kunci: ' + escapeHtml(m.correctAnswer||'') + '</div></details>').join('')
-          : '<small>Detail PG tidak tersimpan pada hasil ini.</small>';
-      }
-    };
-    esBtn.onclick = () => {
-      const open = esBox.style.display !== 'none';
-      esBox.style.display = open ? 'none' : 'block';
-      if (!open) {
+          : '<small>Detail PG tidak tersimpan untuk hasil ini (ujian sebelum fitur ini / gagal simpan butir).</small>');
         const esList = row.essays || [];
-        esBox.innerHTML = esList.length
+        esBox.innerHTML = '<strong>Detail Essay</strong>' + (esList.length
           ? esList.map((e,i) => '<details><summary>Essay ' + (i+1) +
-              (e.score != null ? ' · ' + e.score + '/' + (e.maxScore||20) : '') + '</summary>' +
+              (e.score != null ? ' · ' + e.score + '/' + (e.maxScore||20) : ' · belum dinilai') + '</summary>' +
               '<div>Soal: ' + escapeHtml(e.question||'') +
-              '<br>Jawaban siswa: ' + escapeHtml(e.answer||'') +
+              '<br>Jawaban: ' + escapeHtml(e.answer||'') +
               (e.feedback ? '<br>Catatan: ' + escapeHtml(e.feedback) : '') +
               '</div></details>').join('')
-          : '<small>Tidak ada jawaban essay / belum dinilai.</small>';
+          : '<small>Tidak ada jawaban essay.</small>');
+      } catch (err) {
+        pgBox.innerHTML = '<small>Gagal muat detail: ' + escapeHtml(err.message || String(err)) + '</small>';
       }
     };
-    div.querySelector('.btn-del').onclick = () => adminDeleteRow(row);
+    div.querySelector('.result-del').onclick = () => adminDeleteRow(row);
     list.appendChild(div);
   });
 }
+
 
 
 // Enhance adminLoadData: Supabase = sumber utama (hindari data dobel Sheet+Supabase)
@@ -1816,25 +1838,43 @@ adminLoadData = async function() {
     let rows = [];
     if (window.SHSupabase && SHSupabase.sbEnabled()) {
       const sbRows = await SHSupabase.listResults();
-      rows = (sbRows || []).map(r => ({
-        timestamp: r.created_at || '',
-        name: r.student_name || '',
-        class: r.student_class || '',
-        institution: r.institution || '',
-        packId: r.pack_id || '',
-        packTitle: r.pack_title || '',
-        score: r.score,
-        total: r.total,
-        percent: r.percent,
-        essayScore: r.essay_score != null ? r.essay_score : null,
-        essayScoreMax: r.essay_score_max != null ? r.essay_score_max : null,
-        essays: r.essays || [],
-        mcAnswers: r.mc_answers || [],
-        tabSwitchCount: r.tab_switch_count || 0,
-        timeUsedSeconds: r.time_used_seconds,
-        _source: 'supabase',
-        _id: r.id
-      }));
+      let classMap = {};
+      try {
+        const cls = await SHSupabase.listAllClassesAdmin();
+        (cls || []).forEach(c => { classMap[c.id] = c; });
+      } catch (_) {}
+      rows = (sbRows || []).map(r => {
+        let sc = r.student_class || '';
+        let classLabel = sc;
+        if (classMap[sc]) classLabel = classMap[sc].name + (classMap[sc].institution ? ' · ' + classMap[sc].institution : '');
+        const essays = r.essays || [];
+        let essayScore = r.essay_score != null ? r.essay_score : null;
+        let essayScoreMax = r.essay_score_max != null ? r.essay_score_max : null;
+        if (essayScore == null && essays.length) {
+          const scored = essays.filter(e => e && e.score != null);
+          if (scored.length) essayScore = scored.reduce((a,e) => a + Number(e.score||0), 0);
+        }
+        return {
+          timestamp: r.created_at || '',
+          name: r.student_name || '',
+          class: classLabel || sc,
+          classRaw: sc,
+          institution: r.institution || (classMap[sc] && classMap[sc].institution) || '',
+          packId: r.pack_id || '',
+          packTitle: r.pack_title || '',
+          score: r.score,
+          total: r.total,
+          percent: r.percent,
+          essayScore,
+          essayScoreMax,
+          essays,
+          mcAnswers: r.mc_answers || [],
+          tabSwitchCount: r.tab_switch_count || 0,
+          timeUsedSeconds: r.time_used_seconds,
+          _source: 'supabase',
+          _id: r.id
+        };
+      });
     }
     window.__adminResultsRaw = rows;
     window._adminRows = rows;
@@ -2378,7 +2418,8 @@ async function selectManagePack(p) {
   await renderMpCheckboxTree(p.id);
   await refreshMpPasswords(p.id);
   loadMpPasswordScopeLists().catch(()=>{});
-  if (canGrant) await refreshMpAcl(p.id);
+  renderMpPasswordScopeTree().catch(()=>{});
+  if (canGrant) { await refreshMpAcl(p.id); populateAclAdminList(); }
 }
 async function refreshMpParticipants(packId) {
   const list = document.getElementById('mp-part-list');
@@ -2415,6 +2456,44 @@ async function refreshMpParticipants(packId) {
     });
   } catch (e) { st.textContent = e.message; }
 }
+
+async function populateAclAdminList() {
+  const dl = document.getElementById('mp-acl-user-list');
+  const input = document.getElementById('mp-acl-user');
+  if (!dl || !window.SHSupabase) return;
+  try {
+    const admins = await SHSupabase.listAdmins();
+    dl.innerHTML = '';
+    (admins || []).filter(a => a.role !== 'main' && a.username !== 'main').forEach(a => {
+      const o = document.createElement('option');
+      o.value = a.username;
+      o.label = (a.display_name || a.username) + ' (' + a.username + ')';
+      dl.appendChild(o);
+    });
+    if (input && !input._aclBound) {
+      input._aclBound = true;
+      const loadAcl = async () => {
+        const packId = (document.getElementById('mp-pack-id') || {}).value;
+        const user = input.value.trim();
+        if (!packId || !user) return;
+        try {
+          const rows = await SHSupabase.listPackAcl(packId);
+          const row = (rows || []).find(r => r.grantee_username === user);
+          document.getElementById('mp-acl-rename').checked = !!(row && row.can_rename);
+          document.getElementById('mp-acl-edit').checked = !!(row && row.can_edit_items);
+          document.getElementById('mp-acl-part').checked = !!(row && row.can_manage_participants);
+          const pw = document.getElementById('mp-acl-password');
+          if (pw) pw.checked = !!(row && (row.can_manage_passwords || row.can_manage_password || row.can_password));
+          const gr = document.getElementById('mp-acl-grant');
+          if (gr) gr.checked = !!(row && row.can_grant);
+        } catch (e) { console.warn(e); }
+      };
+      input.addEventListener('change', loadAcl);
+      input.addEventListener('blur', loadAcl);
+    }
+  } catch (e) { console.warn(e); }
+}
+
 async function refreshMpAcl(packId) {
   const list = document.getElementById('mp-acl-list');
   if (!list) return;
@@ -2515,6 +2594,8 @@ async function onMpAclSave() {
       can_rename: document.getElementById('mp-acl-rename').checked,
       can_edit_items: document.getElementById('mp-acl-edit').checked,
       can_manage_participants: document.getElementById('mp-acl-part').checked,
+      can_manage_passwords: !!(document.getElementById('mp-acl-password') && document.getElementById('mp-acl-password').checked),
+      can_grant: !!(document.getElementById('mp-acl-grant') && document.getElementById('mp-acl-grant').checked),
       can_delete: false
     });
     document.getElementById('mp-acl-user').value = '';
@@ -2529,6 +2610,13 @@ async function renderMpCheckboxTree(packId) {
   const st = document.getElementById('mp-part-status');
   if (!box) return;
   box.innerHTML = '';
+  function syncClassParent(classCb, body) {
+    const mems = [...body.querySelectorAll('input[data-role="member"]')];
+    if (!mems.length) { classCb.checked = false; classCb.indeterminate = false; return; }
+    const n = mems.filter(c => c.checked).length;
+    classCb.checked = n === mems.length;
+    classCb.indeterminate = n > 0 && n < mems.length;
+  }
   try {
     const classes = await SHSupabase.listClasses();
     const { keys } = await SHSupabase.getPackParticipantKeys(packId);
@@ -2539,62 +2627,74 @@ async function renderMpCheckboxTree(packId) {
     st.textContent = 'Centang peserta lalu klik Simpan. Wajib minimal satu.';
     for (const c of classes) {
       const wrap = document.createElement('div');
-      wrap.style.cssText = 'border-bottom:1px solid rgba(148,163,184,0.2);padding:8px 6px';
+      wrap.className = 'mp-tree-class';
       const head = document.createElement('div');
-      head.style.cssText = 'display:flex;align-items:center;gap:8px;cursor:pointer';
+      head.className = 'mp-tree-head';
       const classCb = document.createElement('input');
       classCb.type = 'checkbox';
       classCb.dataset.role = 'class';
       classCb.dataset.classId = c.id;
       const title = document.createElement('span');
-      title.innerHTML = '<strong>' + escapeHtml(c.name) + '</strong> <small style="color:var(--text-muted)">' + escapeHtml(c.institution || '') + '</small>';
+      title.innerHTML = '<strong>' + escapeHtml(c.name) + '</strong> <small>' + escapeHtml(c.institution || '') + '</small>';
       const toggle = document.createElement('button');
       toggle.type = 'button';
-      toggle.className = 'btn-link';
-      toggle.textContent = '▼';
-      toggle.style.marginLeft = 'auto';
+      toggle.className = 'mp-tree-toggle';
+      toggle.textContent = '▶';
       head.appendChild(classCb);
       head.appendChild(title);
       head.appendChild(toggle);
       const body = document.createElement('div');
+      body.className = 'mp-tree-body';
       body.style.display = 'none';
-      body.style.paddingLeft = '22px';
       body.dataset.classId = c.id;
       const members = await SHSupabase.listClassMembers(c.id);
       (members || []).forEach(m => {
         const row = document.createElement('label');
-        row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 0;font-size:0.85rem;cursor:pointer';
+        row.className = 'mp-tree-member';
         const cb = document.createElement('input');
         cb.type = 'checkbox';
         cb.dataset.role = 'member';
         cb.dataset.classId = c.id;
         cb.dataset.className = c.name;
+        cb.dataset.institution = c.institution || '';
         cb.dataset.memberId = m.id;
         cb.dataset.name = m.participant_name;
         cb.dataset.display = m.display_name || m.participant_name;
         const k = c.id + '|' + m.participant_name;
         const k2 = c.name + '|' + m.participant_name;
         if (keys.has(k) || keys.has(k2)) cb.checked = true;
+        cb.addEventListener('change', () => syncClassParent(classCb, body));
         row.appendChild(cb);
         row.appendChild(document.createTextNode(m.display_name || m.participant_name));
         body.appendChild(row);
       });
+      syncClassParent(classCb, body);
       classCb.addEventListener('change', () => {
-        body.querySelectorAll('input[data-role="member"]').forEach(cb => { cb.checked = classCb.checked; });
+        body.querySelectorAll('input[data-role="member"]').forEach(cb => {
+          cb.checked = classCb.checked;
+        });
+        classCb.indeterminate = false;
       });
-      toggle.addEventListener('click', () => {
-        body.style.display = body.style.display === 'none' ? 'block' : 'none';
-        toggle.textContent = body.style.display === 'none' ? '▼' : '▲';
+      toggle.addEventListener('click', (e) => {
+        e.preventDefault();
+        const open = body.style.display !== 'none';
+        body.style.display = open ? 'none' : 'block';
+        toggle.textContent = open ? '▶' : '▼';
       });
-      title.addEventListener('click', () => toggle.click());
+      // auto-expand if any selected
+      if ([...body.querySelectorAll('input[data-role="member"]:checked')].length) {
+        body.style.display = 'block';
+        toggle.textContent = '▼';
+      }
       wrap.appendChild(head);
       wrap.appendChild(body);
       box.appendChild(wrap);
     }
   } catch (e) {
-    st.textContent = e.message || 'Gagal memuat daftar peserta';
+    if (st) st.textContent = e.message || 'Gagal muat tree peserta';
   }
 }
+
 
 async function onMpSaveParts() {
   const id = document.getElementById('mp-pack-id').value;
@@ -2720,10 +2820,22 @@ async function refreshMasterMembers(classId) {
         (m.display_name && m.display_name !== m.participant_name
           ? '<br><small>' + escapeHtml(m.display_name) + '</small>' : '') +
         '</span></label>' +
-        '<button type="button" class="btn-del">Hapus</button>';
+        '<div class="mc-row-actions">' +
+        '<button type="button" class="btn btn-secondary btn-sm btn-rename">Rename</button>' +
+        '<button type="button" class="btn-del">Hapus</button></div>';
       div.querySelector('.info').addEventListener('click', (e) => {
-        // toggle highlight
         div.classList.toggle('selected');
+      });
+      div.querySelector('.btn-rename').addEventListener('click', async () => {
+        const nn = prompt('Nama peserta baru:', m.participant_name || '');
+        if (nn == null) return;
+        const name = String(nn).trim();
+        if (!name) return;
+        const dd = prompt('Nama tampilan (opsional):', m.display_name || m.participant_name || '');
+        try {
+          await SHSupabase.updateClassMember(m.id, name, (dd != null ? String(dd).trim() : name));
+          refreshMasterMembers(classId);
+        } catch (err) { alert(err.message || err); }
       });
       div.querySelector('.btn-del').addEventListener('click', async () => {
         if (!confirm('Hapus peserta ini?')) return;
@@ -2827,9 +2939,10 @@ async function onMpAddPassword() {
   const validFromLocal = (document.getElementById('mp-pw-valid-from') || {}).value || '';
   const expLocal = (document.getElementById('mp-pw-expires') || {}).value || '';
   const dur = (document.getElementById('mp-pw-duration') || {}).value || '';
-  const inst = (document.getElementById('mp-pw-inst') || {}).value || '';
-  const cls = (document.getElementById('mp-pw-class') || {}).value || '';
-  const usersRaw = (document.getElementById('mp-pw-users') || {}).value || '';
+  const scope = collectMpPasswordScopeFromTree();
+  const inst = scope.inst || '';
+  const cls = scope.cls || '';
+  const usersRaw = (scope.users || []).join(',');
   try {
     let validFrom = validFromLocal ? new Date(validFromLocal).toISOString() : null;
     let expiresAt = expLocal ? new Date(expLocal).toISOString() : null;
@@ -2860,6 +2973,158 @@ async function onMpAddPassword() {
 }
 
 /** Isi datalist sekolah/kelas/peserta dari database untuk form password */
+
+async function renderMpPasswordScopeTree() {
+  const box = document.getElementById('mp-pw-scope-tree');
+  if (!box || !window.SHSupabase || !SHSupabase.sbEnabled()) return;
+  box.innerHTML = '<p class="hint">Memuat...</p>';
+  try {
+    const classes = await SHSupabase.listAllClassesAdmin();
+    box.innerHTML = '';
+    // group by institution
+    const byInst = new Map();
+    for (const c of (classes || [])) {
+      const inst = (c.institution || '').trim() || '(Lainnya)';
+      if (!byInst.has(inst)) byInst.set(inst, []);
+      byInst.get(inst).push(c);
+    }
+    function syncParent(p, kids) {
+      const list = [...kids];
+      if (!list.length) return;
+      const n = list.filter(x => x.checked).length;
+      p.checked = n === list.length;
+      p.indeterminate = n > 0 && n < list.length;
+    }
+    for (const [inst, clsList] of [...byInst.entries()].sort((a,b)=>a[0].localeCompare(b[0],'id'))) {
+      const iWrap = document.createElement('div');
+      iWrap.className = 'mp-tree-class';
+      const iHead = document.createElement('div');
+      iHead.className = 'mp-tree-head';
+      const iCb = document.createElement('input');
+      iCb.type = 'checkbox';
+      iCb.dataset.role = 'inst';
+      iCb.dataset.inst = inst;
+      const iTitle = document.createElement('span');
+      iTitle.innerHTML = '<strong>' + escapeHtml(inst) + '</strong>';
+      const iTog = document.createElement('button');
+      iTog.type = 'button';
+      iTog.className = 'mp-tree-toggle';
+      iTog.textContent = '▶';
+      iHead.appendChild(iCb); iHead.appendChild(iTitle); iHead.appendChild(iTog);
+      const iBody = document.createElement('div');
+      iBody.className = 'mp-tree-body';
+      iBody.style.display = 'none';
+      const classCbs = [];
+      for (const c of clsList) {
+        const cWrap = document.createElement('div');
+        const cHead = document.createElement('div');
+        cHead.className = 'mp-tree-head';
+        const cCb = document.createElement('input');
+        cCb.type = 'checkbox';
+        cCb.dataset.role = 'class';
+        cCb.dataset.inst = inst;
+        cCb.dataset.className = c.name;
+        classCbs.push(cCb);
+        const cTitle = document.createElement('span');
+        cTitle.textContent = c.name;
+        const cTog = document.createElement('button');
+        cTog.type = 'button';
+        cTog.className = 'mp-tree-toggle';
+        cTog.textContent = '▶';
+        cHead.appendChild(cCb); cHead.appendChild(cTitle); cHead.appendChild(cTog);
+        const cBody = document.createElement('div');
+        cBody.className = 'mp-tree-body';
+        cBody.style.display = 'none';
+        const mems = await SHSupabase.listClassMembers(c.id);
+        const memCbs = [];
+        (mems || []).forEach(m => {
+          const row = document.createElement('label');
+          row.className = 'mp-tree-member';
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.dataset.role = 'member';
+          cb.dataset.inst = inst;
+          cb.dataset.className = c.name;
+          cb.dataset.name = m.participant_name;
+          memCbs.push(cb);
+          cb.addEventListener('change', () => {
+            syncParent(cCb, memCbs);
+            syncParent(iCb, classCbs);
+          });
+          row.appendChild(cb);
+          row.appendChild(document.createTextNode(m.display_name || m.participant_name));
+          cBody.appendChild(row);
+        });
+        cCb.addEventListener('change', () => {
+          memCbs.forEach(x => { x.checked = cCb.checked; });
+          cCb.indeterminate = false;
+          syncParent(iCb, classCbs);
+        });
+        cTog.onclick = (e) => {
+          e.preventDefault();
+          const open = cBody.style.display !== 'none';
+          cBody.style.display = open ? 'none' : 'block';
+          cTog.textContent = open ? '▶' : '▼';
+        };
+        cWrap.appendChild(cHead);
+        cWrap.appendChild(cBody);
+        iBody.appendChild(cWrap);
+      }
+      iCb.addEventListener('change', () => {
+        iBody.querySelectorAll('input[type=checkbox]').forEach(x => {
+          x.checked = iCb.checked; x.indeterminate = false;
+        });
+        iCb.indeterminate = false;
+      });
+      iTog.onclick = (e) => {
+        e.preventDefault();
+        const open = iBody.style.display !== 'none';
+        iBody.style.display = open ? 'none' : 'block';
+        iTog.textContent = open ? '▶' : '▼';
+      };
+      iWrap.appendChild(iHead);
+      iWrap.appendChild(iBody);
+      box.appendChild(iWrap);
+    }
+  } catch (e) {
+    box.innerHTML = '<p class="hint">' + (e.message || e) + '</p>';
+  }
+}
+
+function collectMpPasswordScopeFromTree() {
+  const box = document.getElementById('mp-pw-scope-tree');
+  if (!box) return { inst: '', cls: '', users: [] };
+  const memChecked = [...box.querySelectorAll('input[data-role="member"]:checked')];
+  const classChecked = [...box.querySelectorAll('input[data-role="class"]:checked')];
+  const instChecked = [...box.querySelectorAll('input[data-role="inst"]:checked')];
+  if (!memChecked.length && !classChecked.length && !instChecked.length) {
+    return { inst: '', cls: '', users: [] };
+  }
+  // Prefer most specific: members
+  if (memChecked.length) {
+    const users = memChecked.map(c => c.dataset.name);
+    const classes = [...new Set(memChecked.map(c => c.dataset.className))];
+    const insts = [...new Set(memChecked.map(c => c.dataset.inst))];
+    return {
+      inst: insts.length === 1 ? insts[0] : insts.join('|'),
+      cls: classes.length === 1 ? classes[0] : classes.join('|'),
+      users
+    };
+  }
+  if (classChecked.length) {
+    return {
+      inst: [...new Set(classChecked.map(c => c.dataset.inst))].join('|'),
+      cls: classChecked.map(c => c.dataset.className).join('|'),
+      users: []
+    };
+  }
+  return {
+    inst: instChecked.map(c => c.dataset.inst).join('|'),
+    cls: '',
+    users: []
+  };
+}
+
 async function loadMpPasswordScopeLists() {
   try {
     if (!window.SHSupabase || !SHSupabase.sbEnabled()) return;
