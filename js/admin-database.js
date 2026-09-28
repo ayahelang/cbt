@@ -428,8 +428,7 @@
     const owner = pack.owner_username || 'main';
     const isOwner = isMainAdmin() || owner === currentAdmin.username;
     if (!isOwner) throw new Error('Hanya owner paket atau admin utama yang bisa memberi hak');
-    // Grantee tidak boleh digrant can_delete
-    const body = {
+    const full = {
       pack_id: packId,
       grantee_username: granteeUsername.trim(),
       can_rename: !!flags.can_rename,
@@ -439,18 +438,36 @@
       can_grant: !!flags.can_grant,
       can_delete: false
     };
-    // Admin tambahan hanya boleh grant subset hak yang dia punya
     if (!isMainAdmin()) {
       const perm = await getPackPermissions(pack);
-      if (body.can_rename && !perm.can_rename) body.can_rename = false;
-      if (body.can_edit_items && !perm.can_edit_items) body.can_edit_items = false;
-      if (body.can_manage_participants && !perm.can_manage_participants) body.can_manage_participants = false;
+      if (full.can_rename && !perm.can_rename) full.can_rename = false;
+      if (full.can_edit_items && !perm.can_edit_items) full.can_edit_items = false;
+      if (full.can_manage_participants && !perm.can_manage_participants) full.can_manage_participants = false;
+      if (full.can_manage_passwords && !(perm.can_manage_passwords || perm.can_edit_items)) full.can_manage_passwords = false;
+      if (full.can_grant && !perm.can_grant) full.can_grant = false;
     }
-    await sbFetch('cbt_pack_acl?on_conflict=pack_id,grantee_username', {
-      method: 'POST',
-      headers: { 'Prefer': 'resolution=merge-duplicates,return=representation' },
-      body: JSON.stringify(body)
-    });
+    const attempts = [
+      full,
+      // fallback jika kolom baru belum di-migrate
+      Object.fromEntries(Object.entries(full).filter(([k]) => k !== 'can_grant')),
+      Object.fromEntries(Object.entries(full).filter(([k]) => k !== 'can_grant' && k !== 'can_manage_passwords'))
+    ];
+    let lastErr = null;
+    for (const body of attempts) {
+      try {
+        await sbFetch('cbt_pack_acl?on_conflict=pack_id,grantee_username', {
+          method: 'POST',
+          headers: { 'Prefer': 'resolution=merge-duplicates,return=representation' },
+          body: JSON.stringify(body)
+        });
+        return;
+      } catch (e) {
+        lastErr = e;
+        const msg = String(e && e.message || e);
+        if (!/schema cache|could not find|column/i.test(msg)) throw e;
+      }
+    }
+    throw lastErr || new Error('Gagal simpan ACL. Jalankan supabase-migration-v36-acl-columns.sql di SQL Editor.');
   }
 
   async function listPackAcl(packId) {

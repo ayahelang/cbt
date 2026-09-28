@@ -106,10 +106,16 @@
     <!-- ADMIN SCREEN -->
     <div id="admin-screen" class="screen">
       <div class="card admin-card">
-        <div class="logo-area">
-          <div class="logo-circle">SH</div>
+        <div class="logo-area admin-logo-area">
+          <div class="admin-profile-wrap">
+            <button type="button" class="logo-circle admin-profile-btn" id="btn-admin-profile" title="Menu admin">SH</button>
+            <div class="admin-profile-menu" id="admin-profile-menu" hidden>
+              <button type="button" id="btn-admin-logout-menu">Keluar panel admin</button>
+            </div>
+          </div>
           <h1>Panel Admin</h1>
           <p class="subtitle" id="admin-role-label">Kelola ujian & paket soal</p>
+          <button type="button" class="btn btn-secondary btn-admin-exit" id="btn-admin-logout">Keluar</button>
         </div>
 
         <div class="admin-tabs" id="admin-tabs">

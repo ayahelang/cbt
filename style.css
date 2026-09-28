@@ -1119,3 +1119,24 @@ input[type="checkbox"]:checked { accent-color: #22d3ee; }
 .result-line-score { font-size: 0.85rem; color: #22d3ee; white-space: nowrap; }
 .result-del { width: auto !important; padding: 4px 10px; font-size: 0.75rem; }
 .result-detail-panel { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(148,163,184,0.15); width: 100%; }
+
+.admin-logo-area { position: relative; }
+.admin-profile-wrap { position: relative; display: inline-block; }
+.admin-profile-btn { cursor: pointer; border: 2px solid transparent; }
+.admin-profile-btn:hover { border-color: #22d3ee; }
+.admin-profile-menu {
+  position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+  margin-top: 8px; min-width: 180px; z-index: 50;
+  background: #0f172a; border: 1px solid rgba(148,163,184,0.3);
+  border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); padding: 6px;
+}
+.admin-profile-menu button {
+  width: 100%; text-align: left; background: transparent; border: none;
+  color: #e2e8f0; padding: 10px 12px; border-radius: 8px; cursor: pointer; font-size: 0.9rem;
+}
+.admin-profile-menu button:hover { background: rgba(34,211,238,0.12); color: #22d3ee; }
+.btn-admin-exit { width: auto !important; margin-top: 8px; padding: 6px 14px; font-size: 0.85rem; }
+#mp-acl-list .acl-row.selected {
+  outline: 2px solid #22d3ee;
+  background: rgba(34,211,238,0.1);
+}

@@ -348,6 +348,17 @@ function setupEventListeners() {
   onEl('btn-back-from-admin', 'click', hideSpecialLogins);
   onEl('btn-admin-enter', 'click', enterAdmin);
   onEl('btn-admin-logout', 'click', logoutAdmin);
+  onEl('btn-admin-logout-menu', 'click', logoutAdmin);
+  onEl('btn-admin-profile', 'click', (e) => {
+    e.stopPropagation();
+    const m = document.getElementById('admin-profile-menu');
+    if (!m) return;
+    m.hidden = !m.hidden;
+  });
+  document.addEventListener('click', () => {
+    const m = document.getElementById('admin-profile-menu');
+    if (m) m.hidden = true;
+  });
   onEl('btn-admin-refresh', 'click', adminLoadData);
   onEl('btn-filter-load-tree', 'click', () => loadHasilFilterTree && loadHasilFilterTree());
   onEl('btn-filter-check-all', 'click', () => {
@@ -399,6 +410,14 @@ async function populateClassSelectForPack(packId) {
   if (!packId || !window.SHSupabase || !SHSupabase.sbEnabled()) return;
   try {
     const parts = await SHSupabase.listParticipants(packId);
+    let classes = [];
+    try { classes = await SHSupabase.listClasses(); } catch (_) {}
+    const byId = {};
+    const byName = {};
+    (classes || []).forEach(c => {
+      byId[c.id] = c;
+      byName[String(c.name || '').toLowerCase()] = c;
+    });
     if (!parts || !parts.length) {
       const opt = document.createElement('option');
       opt.value = '';
@@ -406,31 +425,38 @@ async function populateClassSelectForPack(packId) {
       classSelect.appendChild(opt);
       return;
     }
-    const map = new Map();
+    // Unique classes by resolved display key
+    const map = new Map(); // value -> label
     parts.forEach(p => {
-      const key = p.class_id || p.student_class;
-      const label = p.student_class || p.class_id || 'Kelas';
-      if (key && !map.has(String(key))) map.set(String(key), label);
-    });
-    // enrich labels from master classes
-    let classes = [];
-    try { classes = await SHSupabase.listClasses(); } catch (_) {}
-    const byId = {};
-    (classes || []).forEach(c => { byId[c.id] = c; });
-    map.forEach((label, key) => {
-      const opt = document.createElement('option');
-      opt.value = key;
-      if (byId[key]) {
-        opt.textContent = byId[key].name + (byId[key].institution ? ' · ' + byId[key].institution : '');
-      } else {
-        opt.textContent = label;
+      const cid = String(p.class_id || '').trim();
+      const sc = String(p.student_class || '').trim();
+      let label = sc;
+      let value = sc || cid;
+      if (cid && byId[cid]) {
+        label = byId[cid].name + (byId[cid].institution ? ' · ' + byId[cid].institution : '');
+        value = cid; // prefer stable id
+      } else if (sc && byName[sc.toLowerCase()]) {
+        const c = byName[sc.toLowerCase()];
+        label = c.name + (c.institution ? ' · ' + c.institution : '');
+        value = c.id || sc;
+      } else if (cid && !sc) {
+        // UUID mentah tanpa master — skip display uuid as label
+        label = 'Kelas';
+        value = cid;
       }
+      if (value && !map.has(value)) map.set(value, label || value);
+    });
+    [...map.entries()].sort((a,b) => String(a[1]).localeCompare(String(b[1]), 'id')).forEach(([value, label]) => {
+      const opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = label;
       classSelect.appendChild(opt);
     });
   } catch (e) {
     console.warn(e);
   }
 }
+
 
 async function onClassChange() {
   const cls = classSelect.value;
@@ -461,7 +487,8 @@ async function onClassChange() {
       const sc = String(x.student_class || '').trim();
       const cid = String(x.class_id || '').trim();
       const clsS = String(cls).trim();
-      return (sc === clsS || cid === clsS || sc.toLowerCase() === clsS.toLowerCase()) && x.active !== false;
+      return (sc === clsS || cid === clsS || sc.toLowerCase() === clsS.toLowerCase() ||
+        (cid && cid === clsS) || (sc && cid && clsS && (sc === clsS || cid === clsS))) && x.active !== false;
     });
     if (!allowed.length) {
       nameSelect.innerHTML = '<option value="">-- Tidak ada peserta di kelas ini --</option>';
@@ -2475,22 +2502,34 @@ async function populateAclAdminList() {
       const loadAcl = async () => {
         const packId = (document.getElementById('mp-pack-id') || {}).value;
         const user = input.value.trim();
-        if (!packId || !user) return;
-        try {
-          const rows = await SHSupabase.listPackAcl(packId);
-          const row = (rows || []).find(r => r.grantee_username === user);
-          document.getElementById('mp-acl-rename').checked = !!(row && row.can_rename);
-          document.getElementById('mp-acl-edit').checked = !!(row && row.can_edit_items);
-          document.getElementById('mp-acl-part').checked = !!(row && row.can_manage_participants);
-          const pw = document.getElementById('mp-acl-password');
-          if (pw) pw.checked = !!(row && (row.can_manage_passwords || row.can_manage_password || row.can_password));
-          const gr = document.getElementById('mp-acl-grant');
-          if (gr) gr.checked = !!(row && row.can_grant);
-        } catch (e) { console.warn(e); }
+        await loadAclForUsername(packId, user);
       };
       input.addEventListener('change', loadAcl);
+      input.addEventListener('input', loadAcl);
       input.addEventListener('blur', loadAcl);
     }
+  } catch (e) { console.warn(e); }
+}
+
+function applyAclCheckboxes(row) {
+  document.getElementById('mp-acl-rename').checked = !!(row && row.can_rename);
+  document.getElementById('mp-acl-edit').checked = !!(row && row.can_edit_items);
+  document.getElementById('mp-acl-part').checked = !!(row && row.can_manage_participants);
+  const pw = document.getElementById('mp-acl-password');
+  if (pw) pw.checked = !!(row && (row.can_manage_passwords || row.can_manage_password));
+  const gr = document.getElementById('mp-acl-grant');
+  if (gr) gr.checked = !!(row && row.can_grant);
+}
+
+async function loadAclForUsername(packId, user) {
+  if (!packId || !user) {
+    applyAclCheckboxes(null);
+    return;
+  }
+  try {
+    const rows = await SHSupabase.listPackAcl(packId);
+    const row = (rows || []).find(r => r.grantee_username === user);
+    applyAclCheckboxes(row || null);
   } catch (e) { console.warn(e); }
 }
 
@@ -2502,13 +2541,28 @@ async function refreshMpAcl(packId) {
     const rows = await SHSupabase.listPackAcl(packId);
     (rows || []).forEach(r => {
       const div = document.createElement('div');
-      div.className = 'admin-row';
+      div.className = 'admin-row acl-row';
+      div.style.cursor = 'pointer';
       div.innerHTML = '<div class="info" style="flex:1"><strong>' + escapeHtml(r.grantee_username) +
-        '</strong><br><small>rename:' + (r.can_rename?'Y':'N') + ' edit:' + (r.can_edit_items?'Y':'N') +
-        ' peserta:' + (r.can_manage_participants?'Y':'N') + ' hapus:' + (r.can_delete?'Y':'N') + '</small></div>';
+        '</strong><br><small>rename:' + (r.can_rename?'Y':'N') +
+        ' edit:' + (r.can_edit_items?'Y':'N') +
+        ' peserta:' + (r.can_manage_participants?'Y':'N') +
+        ' password:' + ((r.can_manage_passwords||r.can_manage_password)?'Y':'N') +
+        ' grant:' + (r.can_grant?'Y':'N') + '</small></div>';
+      div.querySelector('.info').onclick = () => {
+        const input = document.getElementById('mp-acl-user');
+        if (input) input.value = r.grantee_username;
+        applyAclCheckboxes(r);
+        document.querySelectorAll('#mp-acl-list .acl-row').forEach(x => x.classList.remove('selected'));
+        div.classList.add('selected');
+      };
       const b = document.createElement('button');
       b.type = 'button'; b.className = 'btn-del'; b.textContent = 'Cabut';
-      b.onclick = async () => { await SHSupabase.removePackAcl(packId, r.grantee_username); refreshMpAcl(packId); };
+      b.onclick = async (e) => {
+        e.stopPropagation();
+        await SHSupabase.removePackAcl(packId, r.grantee_username);
+        refreshMpAcl(packId);
+      };
       div.appendChild(b); list.appendChild(div);
     });
   } catch (e) { console.warn(e); }
